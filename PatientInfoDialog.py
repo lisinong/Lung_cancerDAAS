@@ -1,0 +1,121 @@
+import os
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import (
+    QDialog, QFormLayout, QLineEdit, QComboBox,
+    QSpinBox, QDialogButtonBox, QPushButton, QVBoxLayout, QFileDialog, QMessageBox, QLabel, QTextEdit, QGraphicsScene,
+    QGraphicsPixmapItem
+)
+
+
+class PatientInfoDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("患者信息录入")
+        self.layout = QVBoxLayout()
+
+        # 患者信息表单
+        self.form_layout = QFormLayout()
+        self.name_edit = QLineEdit()
+        self.gender_combo = QComboBox()
+        self.gender_combo.addItems(["男", "女"])
+        self.age_spin = QSpinBox()
+        self.age_spin.setRange(0, 120)
+        self.history_edit = QTextEdit()
+        self.history_edit.setPlaceholderText("请输入病史信息")
+
+        self.form_layout.addRow("姓名:", self.name_edit)
+        self.form_layout.addRow("性别:", self.gender_combo)
+        self.form_layout.addRow("年龄:", self.age_spin)
+        self.form_layout.addRow("病史:", self.history_edit)
+
+        # 新增影像加载按钮
+        self.btn_load_image = QPushButton("导入医学影像")
+        self.btn_load_image.clicked.connect(self.load_medical_image)
+        self.image_path = None
+
+        # 预览标签
+        # self.lbl_preview = QLabel()
+        # self.lbl_preview.setFixedSize(200, 200)
+
+        # 按钮组
+        self.btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.btn_box.accepted.connect(self.validate_input)
+        self.btn_box.rejected.connect(self.reject)
+
+        # 布局组合
+        self.layout.addLayout(self.form_layout)
+        self.layout.addWidget(self.btn_load_image)
+        # self.layout.addWidget(self.lbl_preview)
+        self.layout.addWidget(self.btn_box)
+
+        self.setLayout(self.layout)
+
+    def load_medical_image(self):
+        """医学影像加载逻辑"""
+        file_dialog = QFileDialog(self)
+        file_dialog.setFileMode(QFileDialog.ExistingFile)
+        file_dialog.setNameFilters([
+            "图像文件 (*.png *.jpg *.jpeg *.bmp)",
+            "所有文件 (*.*)"
+        ])
+
+        if file_dialog.exec():
+            selected_files = file_dialog.selectedFiles()
+            if not selected_files:
+                return
+            self.image_path = selected_files[0]
+            QMessageBox.information(self, "加载成功", f"已加载影像文件：{os.path.basename(self.image_path)}")
+            # try:
+            #     # 预览缩略图
+            #     pixmap = QPixmap(self.image_path)
+            #     if pixmap.isNull():
+            #         raise ValueError("无法加载图像文件")
+            #     scene = QGraphicsScene()
+            #     item = QGraphicsPixmapItem(pixmap)
+            #     scene.addItem(item)
+            #     self.ui.graphicsView.setScene(scene)
+            #     self.ui.graphicsView.fitInView(item, Qt.KeepAspectRatio)
+            #     QMessageBox.information(self, "加载成功", f"已加载影像文件：{os.path.basename(self.image_path)}")
+            # except Exception as e:
+            #     QMessageBox.critical(self, "错误", f"加载影像失败：{str(e)}")
+            #     self.image_path = None
+
+    def validate_input(self):
+        """提交前的综合验证"""
+        error = []
+        if not self.name_edit.text().strip():
+            error.append("患者姓名不能为空")
+        if not self.image_path:
+            error.append("请先导入医学影像")
+        if self.age_spin.value() < 18:
+            error.append("年龄需≥18岁")
+        if error:
+            QMessageBox.warning(self, "输入错误", "\n".join(error))
+            return False  # 保持对话框打开
+        else:
+            self.accept()  # 验证通过，关闭对话框
+        return True
+
+    def get_patient_info(self):
+        """获取标准化患者信息字典"""
+        return {
+            # 基本信息
+            'name': self.name_edit.text(),
+            'gender': self.gender_combo.currentText(),
+            'age': self.age_spin.value(),
+            # 临床信息
+            'medical_history': self._format_history(self.history_edit.toPlainText()),
+            'risk_factors': self._parse_risk_factors()
+        }
+
+    def _format_history(self, text):
+        """病史文本格式化"""
+        return '；'.join([line.strip() for line in text.split('\n') if line.strip()])
+
+    def _parse_risk_factors(self):
+        """从病史中解析危险因素（仅返回中文关键词列表）"""
+        target_keywords = ['吸烟', '饮酒', '高血压', '糖尿病']
+        history_text = self.history_edit.toPlainText().lower()
+        return [kw for kw in target_keywords if kw in history_text]
