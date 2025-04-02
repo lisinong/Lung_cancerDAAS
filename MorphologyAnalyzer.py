@@ -8,7 +8,6 @@ class MorphologyAnalyzer:
         self.config = {
             'spiculation': {'min_length': 5, 'angle_var': 30},  # 毛刺特征
             'lobulation': {'min_peaks': 3, 'contour_thresh': 0.15},  # 分叶特征
-            'calcification': {'min_white': 0.3, 'grain_size': 3}  # 钙化特征
         }
 
     def analyze(self, roi_image):

@@ -38,6 +38,9 @@
       <height>33</height>
      </rect>
     </property>
+    <property name="toolTip">
+     <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;21&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+    </property>
     <property name="text">
      <string>开始检测</string>
     </property>
@@ -357,7 +360,7 @@ M描述: 无远端转移</string>
          </rect>
         </property>
         <property name="text">
-         <string>单位换算系数: 0.5mm/pixel</string>
+         <string>单位像素换算系数: 0.5mm/pixel</string>
         </property>
        </widget>
       </widget>

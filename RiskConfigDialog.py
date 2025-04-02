@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QDialog, QFormLayout, QComboBox, QDoubleSpinBox, QSpinBox, QTableWidget, QTabWidget, \
-    QWidget, QDialogButtonBox, QVBoxLayout, QGroupBox, QHeaderView, QLabel, QTableWidgetItem, QPushButton, QHBoxLayout
+    QWidget, QDialogButtonBox, QVBoxLayout, QGroupBox, QHeaderView, QLabel, QTableWidgetItem, QPushButton, QHBoxLayout, \
+    QScrollArea
 
 
 class RiskConfigDialog(QDialog):
@@ -55,10 +56,9 @@ class RiskConfigDialog(QDialog):
         gender_layout = QFormLayout()
         self.gender_male = self.create_spinbox(0.0, 5.0)
         self.gender_female = self.create_spinbox(0.0, 5.0)
-        self.gender_other = self.create_spinbox(0.0, 5.0)
+
         gender_layout.addRow("男性:", self.gender_male)
         gender_layout.addRow("女性:", self.gender_female)
-        gender_layout.addRow("其他:", self.gender_other)
         gender_group.setLayout(gender_layout)
 
         # 病史规则表
@@ -85,49 +85,109 @@ class RiskConfigDialog(QDialog):
         self.patient_tab.setLayout(layout)
 
     def init_nodule_tab(self):
-        """初始化结节参数页"""
+        """整合后的结节参数配置页"""
         self.nodule_tab = QWidget()
-        layout = QFormLayout()
+        main_layout = QVBoxLayout()
 
-        # 基础参数
-        self.main_weight = self.create_spinbox(0.5, 0.9, 0.1)
-        self.mm_per_pixel = self.create_spinbox(0.1, 2.0, 0.1)
+        # 基础参数组
+        base_group = QGroupBox("基础设置")
+        base_layout = QFormLayout()
+        self.main_weight = QDoubleSpinBox()
+        self.main_weight.setRange(0.1, 1.0)
+        self.mm_per_pixel = QDoubleSpinBox()
+        self.mm_per_pixel.setRange(0.1, 2.0)
         self.n_status = QComboBox()
         self.n_status.addItems(["N0", "N1"])
         self.m_status = QComboBox()
-        self.m_status.addItems(["M0", "M1a","M1b"])
-        # 阈值参数
-        self.low_thresh = self.create_spinbox(0, 100)
-        self.medium_thresh = self.create_spinbox(0, 100)
-        self.high_thresh = self.create_spinbox(0, 100)
+        self.m_status.addItems(["M0", "M1a", "M1b"])
+        base_layout.addRow("主结节权重:", self.main_weight)
+        base_layout.addRow("像素换算系数(mm/px):", self.mm_per_pixel)
+        base_group.setLayout(base_layout)
 
-        # 类型权重表
-        type_group = QGroupBox("结节类型权重")
-        self.type_table = QTableWidget(0, 2)
-        self.type_table.setHorizontalHeaderLabels(["类型", "分值"])
-        table_buttons = QHBoxLayout()
-        add_btn = QPushButton("新增类型")
-        add_btn.clicked.connect(lambda: self.type_table.insertRow(self.type_table.rowCount()))
-        del_btn = QPushButton("删除选中")
-        del_btn.clicked.connect(lambda: self.type_table.removeRow(self.type_table.currentRow()))
-        table_buttons.addWidget(add_btn)
-        table_buttons.addWidget(del_btn)
-        type_layout = QVBoxLayout()
-        type_layout.addWidget(self.type_table)
-        type_layout.addLayout(table_buttons)
+        # 类型评分组
+        type_group = QGroupBox("类型评分")
+        type_layout = QFormLayout()
+        self.type_ggo = QDoubleSpinBox()
+        self.type_part_solid = QDoubleSpinBox()
+        self.type_solid = QDoubleSpinBox()
+        for spin in [self.type_ggo, self.type_part_solid, self.type_solid]:
+            spin.setRange(0, 10)
+        type_layout.addRow("磨玻璃 (GGO):", self.type_ggo)
+        type_layout.addRow("部分实性:", self.type_part_solid)
+        type_layout.addRow("实性:", self.type_solid)
         type_group.setLayout(type_layout)
 
-        # 布局组合
-        layout.addRow("N状态:", self.n_status)
-        layout.addRow("M状态:", self.m_status)
-        layout.addRow("主结节权重:", self.main_weight)
-        layout.addRow("像素换算系数(mm/px):", self.mm_per_pixel)
-        layout.addRow("低危阈值:", self.low_thresh)
-        layout.addRow("中危阈值:", self.medium_thresh)
-        layout.addRow("高危阈值:", self.high_thresh)
-        layout.addRow(type_group)
+        # 大小规则组
+        size_group = QGroupBox("大小评分")
+        size_layout = QFormLayout()
+        self.size_5 = QDoubleSpinBox()  # <5mm
+        self.size_10 = QDoubleSpinBox()  # 5-10mm
+        self.size_20 = QDoubleSpinBox()  # 10-20mm
+        self.size_30 = QDoubleSpinBox()  # 20-30mm
+        self.size_inf = QDoubleSpinBox()  # ≥30mm
+        for spin in [self.size_5, self.size_10, self.size_20, self.size_30, self.size_inf]:
+            spin.setRange(0, 10)
+        size_layout.addRow("<5mm:", self.size_5)
+        size_layout.addRow("5-10mm:", self.size_10)
+        size_layout.addRow("10-20mm:", self.size_20)
+        size_layout.addRow("20-30mm:", self.size_30)
+        size_layout.addRow("≥30mm:", self.size_inf)
+        size_group.setLayout(size_layout)
 
-        self.nodule_tab.setLayout(layout)
+        # 位置规则组
+        location_group = QGroupBox("位置评分")
+        location_layout = QFormLayout()
+        self.upper_score = QDoubleSpinBox()
+        self.middle_score = QDoubleSpinBox()
+        self.lower_score = QDoubleSpinBox()
+        for spin in [self.upper_score, self.middle_score, self.lower_score]:
+            spin.setRange(0, 5)
+            spin.setSingleStep(0.5)
+        location_layout.addRow("上肺叶:", self.upper_score)
+        location_layout.addRow("中肺叶:", self.middle_score)
+        location_layout.addRow("下肺叶:", self.lower_score)
+        location_group.setLayout(location_layout)
+
+        # 形态规则组
+        morph_group = QGroupBox("形态评分")
+        morph_layout = QFormLayout()
+        self.morph_spic = QDoubleSpinBox()  # 毛刺征
+        self.morph_lob = QDoubleSpinBox()  # 分叶征
+        for spin in [self.morph_spic, self.morph_lob]:
+            spin.setRange(0, 5)
+        morph_layout.addRow("毛刺征:", self.morph_spic)
+        morph_layout.addRow("分叶征:", self.morph_lob)
+        morph_group.setLayout(morph_layout)
+
+        # 阈值设置组
+        threshold_group = QGroupBox("风险阈值")
+        threshold_layout = QFormLayout()
+        self.low_thresh = QSpinBox()
+        self.medium_thresh = QSpinBox()
+        self.high_thresh = QSpinBox()
+        for spin in [self.low_thresh, self.medium_thresh, self.high_thresh]:
+            spin.setRange(0, 100)
+        threshold_layout.addRow("低危:", self.low_thresh)
+        threshold_layout.addRow("中危:", self.medium_thresh)
+        threshold_layout.addRow("高危:", self.high_thresh)
+        threshold_group.setLayout(threshold_layout)
+
+        # 组合所有组件
+        scroll = QScrollArea()
+        content = QWidget()
+        layout = QVBoxLayout()
+        layout.addWidget(base_group)
+        layout.addWidget(type_group)
+        layout.addWidget(size_group)
+        layout.addWidget(location_group)
+        layout.addWidget(morph_group)
+        layout.addWidget(threshold_group)
+        content.setLayout(layout)
+        scroll.setWidget(content)
+        scroll.setWidgetResizable(True)
+
+        main_layout.addWidget(scroll)
+        self.nodule_tab.setLayout(main_layout)
 
     def create_spinbox(self, min_val, max_val, step=0.1):
         """创建标准化数值输入框"""
@@ -157,7 +217,6 @@ class RiskConfigDialog(QDialog):
             self.history_table.setItem(row, 1, QTableWidgetItem(str(score)))
 
         # 结节参数
-        nodule_params = params['nodules']
         self.main_weight.setValue(params['main_weight'])
         self.mm_per_pixel.setValue(params['mm_per_pixel'])
         self.n_status.setCurrentText(params['n_status'])
@@ -166,11 +225,31 @@ class RiskConfigDialog(QDialog):
         self.medium_thresh.setValue(params['thresholds']['medium'])
         self.high_thresh.setValue(params['thresholds']['high'])
 
-        # 加载类型权重
-        self.type_table.setRowCount(len(nodule_params['type']))
-        for row, (t, score) in enumerate(nodule_params['type'].items()):
-            self.type_table.setItem(row, 0, QTableWidgetItem(t))
-            self.type_table.setItem(row, 1, QTableWidgetItem(str(score)))
+        # 类型评分
+        self.type_ggo.setValue(params['nodules']['type']['ggo'])
+        self.type_part_solid.setValue(params['nodules']['type']['part-solid'])
+        self.type_solid.setValue(params['nodules']['type']['solid'])
+
+        # 位置评分
+        self.upper_score.setValue(params['nodules']['location']['upper'])
+        self.middle_score.setValue(params['nodules']['location']['middle'])
+        self.lower_score.setValue(params['nodules']['location']['lower'])
+        # 大小评分
+        for (max_size, score) in params['nodules']['size']:
+            if max_size == 5:
+                self.size_5.setValue(score)
+            elif max_size == 10:
+                self.size_10.setValue(score)
+            elif max_size == 20:
+                self.size_20.setValue(score)
+            elif max_size == 30:
+                self.size_30.setValue(score)
+            elif max_size == float('inf'):
+                self.size_inf.setValue(score)
+        # 形态评分
+        morph = params['nodules']['morphology']
+        self.morph_spic.setValue(morph.get('spiculation', 0))
+        self.morph_lob.setValue(morph.get('lobulation', 0))
 
     def get_params(self):
         """从界面获取参数"""
@@ -198,10 +277,27 @@ class RiskConfigDialog(QDialog):
                 'history_keywords': {}
             },
             'nodules': {
-                'size': [(5, 0), (10, 1), (20, 2), (30, 3), (float('inf'), 4)],
-                'type': {'ggo': 1, 'part-solid': 2, 'solid': 3},
-                'location': {'upper': 1, 'middle': 0.5, 'lower': 0},  # 上肺叶风险更高[6](@ref)
-                'morphology': {'spiculation': 2, 'lobulation': 1.5}
+                'type': {
+                    'ggo': self.type_ggo.value(),
+                    'part-solid': self.type_part_solid.value(),
+                    'solid': self.type_solid.value()
+                },
+                'location': {
+                    'upper': self.upper_score.value(),
+                    'middle': self.middle_score.value(),
+                    'lower': self.lower_score.value()
+                },
+                'size': [
+                    (5, self.size_5.value()),
+                    (10, self.size_10.value()),
+                    (20, self.size_20.value()),
+                    (30, self.size_30.value()),
+                    (float('inf'), self.size_inf.value())
+                ],
+                'morphology': {
+                    'spiculation': self.morph_spic.value(),
+                    'lobulation': self.morph_lob.value(),
+                }
             }
         }
 
@@ -211,12 +307,5 @@ class RiskConfigDialog(QDialog):
             score_item = self.history_table.item(row, 1)
             if kw_item and score_item:
                 params['patient']['history_keywords'][kw_item.text()] = float(score_item.text())
-
-        # 解析类型权重
-        for row in range(self.type_table.rowCount()):
-            type_item = self.type_table.item(row, 0)
-            score_item = self.type_table.item(row, 1)
-            if type_item and score_item:
-                params['nodule']['type'][type_item.text()] = float(score_item.text())
 
         return params

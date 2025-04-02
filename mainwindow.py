@@ -3,10 +3,11 @@ import math
 import sys
 from collections import defaultdict
 
-from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QMessageBox, QGraphicsScene, QGraphicsPixmapItem, \
-    QTableWidgetItem, QPushButton
+import cv2
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QGraphicsScene, QGraphicsPixmapItem, \
+    QTableWidgetItem
 from PySide6.QtGui import QPixmap, QPen, QColor
-from PySide6.QtCore import Qt, QDateTime
+from PySide6.QtCore import Qt
 from ultralytics import YOLO
 
 from PatientInfoDialog import PatientInfoDialog
@@ -25,6 +26,8 @@ from ui_form import Ui_MainWindow
 class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._export_available = False
+        self._detect_available = False
         self.nodules = None
         self.advice = None
         self.ui = Ui_MainWindow()
@@ -51,7 +54,7 @@ class MainWindow(QMainWindow):
             # 患者特征参数
             'patient': {
                 'age_weights': {'<45': 0.5, '45-54': 1.5, '55-69': 2.0, '≥70': 3.0},
-                'gender_weights': {'男': 1.5, '女': 0.5, '其他': 1.0},
+                'gender_weights': {'男': 1.5, '女': 0.5},
                 'history_keywords': {'吸烟': 2.0, '家族史': 1.5}
             },
             'nodules': {
@@ -78,16 +81,31 @@ class MainWindow(QMainWindow):
         # 按钮初始化状态
         self.current_image_path = None  # 当前加载的影像路径
         self.patient_info = None  # 存储患者信息
-        self.detection_completed = False
+        self._update_ui_state()  # 更新UI状态
 
-        # 按钮状态初始化
-        self.ui.startDetectionBtn.setEnabled(False)
-        self.ui.exportBtn.setEnabled(False)
         # 新增按钮
         self.ui.startDetectionBtn.clicked.connect(self.start_detection)
         self.ui.addPatientBtn.clicked.connect(self.show_patient_dialog)
         self.ui.exportBtn.clicked.connect(self.show_export_dialog)
         self.ui.paramButton.clicked.connect(self.show_config_dialog)
+
+    def _update_ui_state(self):
+        """统一更新界面状态"""
+        # 按钮状态初始化
+        self.ui.startDetectionBtn.setEnabled(self._detect_available)
+        self.ui.exportBtn.setEnabled(self._export_available)
+
+        # 更新提示信息
+        if not self._detect_available:
+            self.ui.startDetectionBtn.setToolTip("请先加载医学影像")
+        else:
+            self.ui.startDetectionBtn.setToolTip("点击开始检测")
+
+        #更新导出按钮提示
+        if not self._export_available:
+            self.ui.exportBtn.setToolTip("请先完成检测")
+        else:
+            self.ui.exportBtn.setToolTip("点击导出报告")
 
     def show_config_dialog(self):
         """显示参数配置对话框（更新版）"""
@@ -100,7 +118,7 @@ class MainWindow(QMainWindow):
             # 获取新参数并验证
             new_params = dialog.get_params()
             # 阈值验证
-            thresholds = new_params['nodule']['thresholds']
+            thresholds = new_params['thresholds']
             if not (thresholds['low'] < thresholds['medium'] < thresholds['high']):
                 QMessageBox.warning(self, "参数错误", "阈值必须满足：低危 < 中危 < 高危")
                 return
@@ -114,13 +132,8 @@ class MainWindow(QMainWindow):
 
             # 更新参数并刷新UI
             self.current_params = new_params
-            self.update_param_display()
+            self.ui.label.setText(f"单位像素换算系数: {new_params['mm_per_pixel']} mm/px")
             QMessageBox.information(self, "成功", "参数更新完成")
-
-    def update_param_display(self):
-        """更新主界面参数显示"""
-        params = self.current_params
-        self.ui.label.setText(f"像素换算: {params['nodule']['mm_per_pixel']} mm/px")
 
     def show_patient_dialog(self):
         """显示患者信息对话框"""
@@ -131,7 +144,8 @@ class MainWindow(QMainWindow):
             self.current_image_path = dialog.image_path
             # 显示原始图像
             self.show_image(self.current_image_path)
-            self.ui.startDetectionBtn.setEnabled(True)
+            self._detect_available = True
+            self._update_ui_state()  # 更新UI状态
             QMessageBox.information(self, "就绪", "患者信息与影像加载完成，可开始检测")
 
     def start_detection(self):
@@ -142,15 +156,15 @@ class MainWindow(QMainWindow):
         try:
             # 执行原有处理流程
             self.process_image(self.current_image_path)
-            self.detection_completed = True
-            self.ui.exportBtn.setEnabled(True)
+            self._export_available = True
+            self._update_ui_state()  # 更新UI状态
         except Exception as e:
             QMessageBox.critical(self, "检测失败", f"影像处理错误：{str(e)}")
-            self.detection_completed = False
+            self._export_available = False
 
     def show_export_dialog(self):
         """生成导出数据并显示导出对话框"""
-        if self.detection_completed:
+        if self._export_available:
             report_data = {
                 'patient_info': self.patient_info,
                 'nodule_features': self.generate_features_text(self.nodules),
@@ -263,51 +277,6 @@ class MainWindow(QMainWindow):
         tnm_stage, stage_details = self.predict_tnm_stage(nodules)
         self.ui.stageLabel.setText(f"TNM分期：{tnm_stage}")
         self.ui.stageDetailLabel.setText(f"分期描述：\n{stage_details}")
-
-    # def assess_malignant_risk(self, nodules):
-    #     """基于结节特征的恶性风险评估"""
-    #     total_score = 0
-    #     details = []
-    #
-    #     for nodule in nodules:
-    #         score = 0
-    #         # 大小评分
-    #         if nodule['diameter_mm'] > 30:
-    #             score += 3
-    #             details.append(f"大结节({nodule['diameter_mm']:.1f}mm)")
-    #         elif nodule['diameter_mm'] > 20:
-    #             score += 2
-    #             details.append(f"中等结节({nodule['diameter_mm']:.1f}mm)")
-    #         elif nodule['diameter_mm'] > 10:
-    #             score += 1
-    #             details.append(f"小结节({nodule['diameter_mm']:.1f}mm)")
-    #
-    #         # 类型评分（假设模型返回类型）
-    #         if nodule['type'] == 'solid':
-    #             score += 2
-    #             details.append("实性结节")
-    #         elif nodule['type'] == 'part-solid':
-    #             score += 1.5
-    #             details.append("部分实性")
-    #         elif nodule['type'] == 'ggo':
-    #             score += 1
-    #             details.append("磨玻璃影")
-    #
-    #         # 位置评分（示例逻辑）
-    #         if nodule['position'][1] < 150:  # 假设左上肺叶
-    #             score += 0.5
-    #             details.append("上肺叶")
-    #         else:
-    #             details.append("下肺叶")
-    #         total_score += score
-    #
-    #     # 综合评估
-    #     if total_score >= 5:
-    #         return "高危", " + ".join(details)
-    #     elif total_score >= 3:
-    #         return "中危", " + ".join(details)
-    #     else:
-    #         return "低危", " + ".join(details)
 
     def assess_malignant_risk(self, nodules):
         """基于Lung-RADS 2022和C-TIRADS的恶性风险评估"""
@@ -440,14 +409,9 @@ class MainWindow(QMainWindow):
                 weight = morph_rules.get(feature, 0)
                 if weight > 0:
                     score += weight
-                    morphology_weights[feature] += 1
+                    # morphology_weights[feature] += 1
 
-        # # 7. 钙化特征
-        # if 'calcification' in nodule['morphology']:
-        #     calc_type = nodule['calcification_type']
-        #     score += 2 if calc_type == 'micro' else 1  # 微钙化高风险
-
-        return min(score, 10)  # 根据网页4 LU-RADS调整上限
+        return min(score, 10)  # 根据LU-RADS调整上限
 
     def _generate_advice(self, risk_level, main_nodule):
         """根据NCCN指南生成建议[6](@ref)"""
@@ -532,6 +496,16 @@ class MainWindow(QMainWindow):
 
         return f"{stage_detail[0]} {tnm_code}", stage_detail[1]
 
+    def _crop_roi(self, image, coords, padding=5):
+        """带安全边界的ROI裁剪"""
+        h, w = image.shape[:2]
+        x1, y1, x2, y2 = [int(round(c)) for c in coords]
+        x1 = max(0, x1 - padding)
+        y1 = max(0, y1 - padding)
+        x2 = min(w, x2 + padding)
+        y2 = min(h, y2 + padding)
+        return image[y1:y2, x1:x2]
+
     def process_detections(self, results):
         """处理检测结果并提取结节特征"""
         nodules = []
@@ -540,17 +514,24 @@ class MainWindow(QMainWindow):
                 # 获取检测框信息
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 cls = int(box.cls[0].item())
-
+                conf = box.conf[0].item()
                 # 计算实际尺寸
-                width = (x2 - x1) * self.default_params['mm_per_pixel']
-                height = (y2 - y1) * self.default_params['mm_per_pixel']
-                diameter = max(width, height)
-
+                width = x2 - x1
+                height = y2 - y1
+                diameter = max(width, height) * self.default_params['mm_per_pixel']
+                # ROI特征分析
+                roi = self._crop_roi(cv2.imread(self.current_image_path), (x1, y1, x2, y2))
+                morphology = MorphologyAnalyzer().analyze(roi)
                 nodules.append({
                     'diameter_mm': diameter,
                     'type': result.names[cls],
+                    'confidence': round(conf, 2),
                     'position': ((x1 + x2) / 2, (y1 + y2) / 2),
-                    'coords': (x1, y1, x2, y2)
+                    'morphology': {
+                        'spiculation': morphology['spiculation'],
+                        'lobulation': morphology['lobulation']
+                    },
+                    'roi_shape': roi.shape[:2]  # 用于质量检查
                 })
         return nodules
 
@@ -622,10 +603,14 @@ class MainWindow(QMainWindow):
             self.ui.noduleTable.setItem(i, 0, QTableWidgetItem(str(i + 1)))
             self.ui.noduleTable.setItem(i, 1, QTableWidgetItem(f"{nodule['diameter_mm']:.1f}"))
             self.ui.noduleTable.setItem(i, 2, QTableWidgetItem(nodule['type']))
-            # 边界判断逻辑（示例）
-            border_status = "毛刺"
-            self.ui.noduleTable.setItem(i, 3, QTableWidgetItem(border_status))
-            # 位置格式化
+            morphology_desc = []
+            if nodule['morphology']['spiculation'] > 0:
+                morphology_desc.append("毛刺")
+            if nodule['morphology']['lobulation'] > 0:
+                morphology_desc.append("分叶")
+            if not morphology_desc:
+                morphology_desc.append("无")
+            self.ui.noduleTable.setItem(i, 3, QTableWidgetItem(" | ".join(morphology_desc)))  # 位置格式化
             position_str = f"({nodule['position'][0]:.1f}, {nodule['position'][1]:.1f})"
             self.ui.noduleTable.setItem(i, 4, QTableWidgetItem(position_str))
 
