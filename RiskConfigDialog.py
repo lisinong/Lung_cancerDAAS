@@ -1,11 +1,13 @@
+import yaml
 from PySide6.QtWidgets import QDialog, QFormLayout, QComboBox, QDoubleSpinBox, QSpinBox, QTableWidget, QTabWidget, \
-    QWidget, QDialogButtonBox, QVBoxLayout, QGroupBox, QHeaderView, QLabel, QTableWidgetItem, QPushButton, QHBoxLayout, \
-    QScrollArea
+    QWidget, QDialogButtonBox, QVBoxLayout, QGroupBox, QHeaderView, QTableWidgetItem, QPushButton, QHBoxLayout, \
+    QScrollArea, QMessageBox, QFileDialog
 
 
 class RiskConfigDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.current_config = None  # 修复变量名冲突
         self.setWindowTitle("高级参数配置")
         self.setMinimumSize(800, 600)
 
@@ -26,11 +28,21 @@ class RiskConfigDialog(QDialog):
         )
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
-
+        # 添加导入保存按钮
+        self.import_btn = QPushButton("导入配置")
+        self.save_btn = QPushButton("保存配置")
+        self.import_btn.clicked.connect(self.handle_import)
+        self.save_btn.clicked.connect(self.handle_save)
+        # 按钮布局
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.import_btn)
+        button_layout.addWidget(self.save_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(self.button_box)
         # 主布局
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.tabs)
-        main_layout.addWidget(self.button_box)
+        main_layout.addLayout(button_layout)
         self.setLayout(main_layout)
 
     def init_patient_tab(self):
@@ -102,6 +114,8 @@ class RiskConfigDialog(QDialog):
         self.m_status.addItems(["M0", "M1a", "M1b"])
         base_layout.addRow("主结节权重:", self.main_weight)
         base_layout.addRow("像素换算系数(mm/px):", self.mm_per_pixel)
+        base_layout.addRow("N状态:", self.n_status)
+        base_layout.addRow("M状态:", self.m_status)
         base_group.setLayout(base_layout)
 
         # 类型评分组
@@ -154,8 +168,8 @@ class RiskConfigDialog(QDialog):
         self.morph_spic = QDoubleSpinBox()  # 毛刺征
         self.morph_lob = QDoubleSpinBox()  # 分叶征
         self.morph_vac = QDoubleSpinBox()  #空泡征
-        self.morph_cal= QDoubleSpinBox()  #钙化
-        for spin in [self.morph_spic, self.morph_lob,self.morph_vac,self.morph_cal]:
+        self.morph_cal = QDoubleSpinBox()  #钙化
+        for spin in [self.morph_spic, self.morph_lob, self.morph_vac, self.morph_cal]:
             spin.setRange(0, 5)
         morph_layout.addRow("毛刺征:", self.morph_spic)
         morph_layout.addRow("分叶征:", self.morph_lob)
@@ -208,7 +222,7 @@ class RiskConfigDialog(QDialog):
         self.age_under45.setValue(age_weights['<45'])
         self.age_45_54.setValue(age_weights['45-54'])
         self.age_55_69.setValue(age_weights['55-69'])
-        self.age_over70.setValue(age_weights['≥70'])
+        self.age_over70.setValue(age_weights['>=70'])
 
         gender_weights = params['patient']['gender_weights']
         self.gender_male.setValue(gender_weights['男'])
@@ -240,6 +254,7 @@ class RiskConfigDialog(QDialog):
         self.lower_score.setValue(params['nodules']['location']['lower'])
         # 大小评分
         for (max_size, score) in params['nodules']['size']:
+
             if max_size == 5:
                 self.size_5.setValue(score)
             elif max_size == 10:
@@ -254,8 +269,8 @@ class RiskConfigDialog(QDialog):
         morph = params['nodules']['morphology']
         self.morph_spic.setValue(morph.get('spiculation', 0))
         self.morph_lob.setValue(morph.get('lobulation', 0))
-        self.morph_vac.setValue(morph.get('vacuolation',0))
-        self.morph_cal.setValue(morph.get('calcification',0))
+        self.morph_vac.setValue(morph.get('vacuolation', 0))
+        self.morph_cal.setValue(morph.get('calcification', 0))
 
     def get_params(self):
         """从界面获取参数"""
@@ -274,7 +289,7 @@ class RiskConfigDialog(QDialog):
                     '<45': self.age_under45.value(),
                     '45-54': self.age_45_54.value(),
                     '55-69': self.age_55_69.value(),
-                    '≥70': self.age_over70.value()
+                    '>=70': self.age_over70.value()
                 },
                 'gender_weights': {
                     '男': self.gender_male.value(),
@@ -294,17 +309,17 @@ class RiskConfigDialog(QDialog):
                     'lower': self.lower_score.value()
                 },
                 'size': [
-                    (5, self.size_5.value()),
-                    (10, self.size_10.value()),
-                    (20, self.size_20.value()),
-                    (30, self.size_30.value()),
-                    (float('inf'), self.size_inf.value())
+                    [5, self.size_5.value()],  # 改用列表
+                    [10, self.size_10.value()],
+                    [20, self.size_20.value()],
+                    [30, self.size_30.value()],
+                    [float('inf'), self.size_inf.value()]
                 ],
                 'morphology': {
                     'spiculation': self.morph_spic.value(),
                     'lobulation': self.morph_lob.value(),
-                    'vacuolation':self.morph_vac.value(),
-                    'calcification':self.morph_cal.value()
+                    'vacuolation': self.morph_vac.value(),
+                    'calcification': self.morph_cal.value()
                 }
             }
 
@@ -318,3 +333,96 @@ class RiskConfigDialog(QDialog):
                 params['patient']['history_keywords'][kw_item.text()] = float(score_item.text())
 
         return params
+
+    def _validate_config(self, config):
+        """验证配置文件的完整性"""
+        required_keys = [
+            'main_weight', 'n_status', 'm_status', 'mm_per_pixel',
+            'thresholds', 'patient', 'nodules'
+        ]
+        for key in required_keys:
+            if key not in config:
+                raise ValueError(f"缺少必要配置项：{key}")
+
+        # 检查阈值顺序
+        thresholds = config['thresholds']
+        if not (thresholds['low'] < thresholds['medium'] < thresholds['high']):
+            raise ValueError("阈值必须满足：低危 < 中危 < 高危")
+        # 年龄分段完整性验证
+        age_weights = config['patient']['age_weights']
+        required_age_keys = ['<45', '45-54', '55-69', '>=70']
+        if any(k not in age_weights for k in required_age_keys):
+            QMessageBox.warning(self, "参数错误", "年龄分段配置不完整")
+            return
+        # 性别完整性验证
+        gender_weights = config['patient']['gender_weights']
+        required__gender_keys = ['男', '女']
+        if any(k not in gender_weights for k in required__gender_keys):
+            QMessageBox.warning(self, "参数错误", "性别配置不完整")
+            return
+        # 结节大小分段完整性验证
+        size_rules = config['nodules']['size']
+        if not all(isinstance(threshold, list) and len(threshold) == 2 and isinstance(threshold[0], (int, float)) and isinstance(threshold[1], (int, float)) for threshold in size_rules):
+            QMessageBox.warning(self, "参数错误", "结节大小分段配置不完整")
+            return
+        # 结节类型完整性验证
+        type_weights = config['nodules']['type']
+        required_type_keys = ['ggo', 'part-solid', 'solid']
+        if any(k not in type_weights for k in required_type_keys):
+            QMessageBox.warning(self, "参数错误", "结节类型配置不完整")
+            return
+        # 结节位置完整性验证
+        location_weights = config['nodules']['location']
+        required_location_keys = ['upper', 'middle', 'lower']
+        if any(k not in location_weights for k in required_location_keys):
+            QMessageBox.warning(self, "参数错误", "结节位置配置不完整")
+            return
+        # 结节形态完整性验证
+        morph_rules = config['nodules']['morphology']
+        required__morph_keys = ['spiculation', 'lobulation', 'calcification', 'vacuolation']
+        if any(k not in morph_rules for k in required__morph_keys):
+            QMessageBox.warning(self, "参数错误", "结节形态配置不完整")
+            return
+        # 其他参数完整性验证
+        if not isinstance(config['mm_per_pixel'], (int, float)):
+            QMessageBox.warning(self, "参数错误", "单位像素换算系数配置错误")
+            return
+
+    def handle_import(self):
+        """处理导入配置操作"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择配置文件", "", "YAML文件 (*.yaml *.yml)"
+        )
+        if path and self.load_config_file(path):
+            self.load_params(self.current_config)
+            QMessageBox.information(self, "成功", "配置导入成功！")
+
+    def handle_save(self):
+        """处理保存配置操作"""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "保存配置文件", "", "YAML文件 (*.yaml *.yml)"
+        )
+        if path:
+            try:
+                with open(path, 'w',encoding='utf-8-sig') as f:
+                    yaml.dump(self.get_params(), f,
+                              allow_unicode=True,  # 禁用Unicode转义
+                              sort_keys=False,  # 保持字典顺序
+                              default_flow_style=False  # 使用块样式
+                              )
+                QMessageBox.information(self, "成功", "配置保存成功！")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"保存失败：{str(e)}")
+
+    def load_config_file(self, filepath):
+        """从文件加载配置"""
+        try:
+            with open(filepath, 'r', encoding='utf-8-sig') as f:
+                config = yaml.safe_load(f)
+                self._validate_config(config)
+                self.current_config = config
+                return True
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"配置加载失败：{str(e)}")
+            return False
+

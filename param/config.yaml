@@ -1,0 +1,45 @@
+﻿main_weight: 0.7
+mm_per_pixel: 0.5
+n_status: N1
+m_status: M0
+thresholds:
+  low: 3
+  medium: 6
+  high: 8
+patient:
+  age_weights:
+    <45: 0.5
+    45-54: 1.5
+    55-69: 2.0
+    '>=70': 3.0
+  gender_weights:
+    男: 1.5
+    女: 0.6
+  history_keywords:
+    吸烟: 2.0
+    家族史: 1.5
+nodules:
+  type:
+    ggo: 1.0
+    part-solid: 2.0
+    solid: 3.0
+  location:
+    upper: 1.0
+    middle: 0.5
+    lower: 0.0
+  size:
+  - - 5
+    - 0.0
+  - - 10
+    - 1.0
+  - - 20
+    - 2.0
+  - - 30
+    - 3.0
+  - - .inf
+    - 4.0
+  morphology:
+    spiculation: 2.0
+    lobulation: 1.5
+    vacuolation: 1.0
+    calcification: 1.0

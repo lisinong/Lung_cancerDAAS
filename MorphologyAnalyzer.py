@@ -8,22 +8,22 @@ class MorphologyAnalyzer:
         # 形态特征阈值配置
         self.config = {
             'spiculation': {  #毛刺
-                'hough_threshold': 20,
-                'min_length': 5,
-                'max_gap': 5
+                'hough_threshold': 50,  # 霍夫变换阈值
+                'min_length': 20,  # 最小线段长度
+                'max_gap': 5  # 最大线段间隙
             },
             'lobulation': {  #分叶
-                'block_size': 11,
-                'c': 2,
-                'contour_thresh': 0.02
+                'block_size': 11,  # 自适应阈值块大小
+                'c': 2,  # 自适应阈值常数
+                'contour_thresh': 0.03  # 轮廓近似阈值
             },
             'vacuolation': {  #空泡征
-                'intensity_thresh': 150,
-                'area_thresh': 5  # mm²
+                'intensity_thresh': 21.09375,  # 强度阈值
+                'area_thresh': 5  # 面积阈值
             },
             'calcification': {  #钙化
-                'hu_thresh': 130,
-                'hu_scale_factor': 2
+                'hu_thresh': 150,  # HU值阈值
+                'hu_scale_factor': 2  # HU值缩放因子
             },
             'mm_per_pixel': 0.5  # 关键物理参数
         }
@@ -64,6 +64,7 @@ class MorphologyAnalyzer:
         # 检查输入图像
         if roi_image is None or not isinstance(roi_image, np.ndarray):
             raise ValueError("Invalid input image")
+        self.load_config('param/Morphology.yaml')
         config = self.config
         # 预处理
         gray = cv2.cvtColor(roi_image, cv2.COLOR_BGR2GRAY)

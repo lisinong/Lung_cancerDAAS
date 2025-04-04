@@ -5,6 +5,7 @@ from collections import defaultdict
 from tkinter import filedialog
 
 import cv2
+import yaml
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QGraphicsScene, QGraphicsPixmapItem, \
     QTableWidgetItem
 from PySide6.QtGui import QPixmap, QPen, QColor
@@ -15,7 +16,6 @@ from PatientInfoDialog import PatientInfoDialog
 from ReportExportDialog import ReportExportDialog
 from RiskConfigDialog import RiskConfigDialog
 from MorphologyAnalyzer import MorphologyAnalyzer
-from tools.形态参数调试 import MorphologyTuner
 from ui_form import Ui_MainWindow
 
 
@@ -28,6 +28,7 @@ from ui_form import Ui_MainWindow
 class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.load_config = None
         self._export_available = False
         self._detect_available = False
         self.nodules = None
@@ -55,7 +56,7 @@ class MainWindow(QMainWindow):
             },
             # 患者特征参数
             'patient': {
-                'age_weights': {'<45': 0.5, '45-54': 1.5, '55-69': 2.0, '≥70': 3.0},
+                'age_weights': {'<45': 0.5, '45-54': 1.5, '55-69': 2.0, '>=70': 3.0},
                 'gender_weights': {'男': 1.5, '女': 0.5},
                 'history_keywords': {'吸烟': 2.0, '家族史': 1.5}
             },
@@ -117,22 +118,9 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             # 获取新参数并验证
             new_params = dialog.get_params()
-            # 阈值验证
-            thresholds = new_params['thresholds']
-            if not (thresholds['low'] < thresholds['medium'] < thresholds['high']):
-                QMessageBox.warning(self, "参数错误", "阈值必须满足：低危 < 中危 < 高危")
-                return
-
-            # 年龄分段完整性验证
-            age_weights = new_params['patient']['age_weights']
-            required_age_keys = ['<45', '45-54', '55-69', '≥70']
-            if any(k not in age_weights for k in required_age_keys):
-                QMessageBox.warning(self, "参数错误", "年龄分段配置不完整")
-                return
-
             # 更新参数并刷新UI
             self.current_params = new_params
-            self.ui.label.setText(f"单位像素换算系数: {new_params['mm_per_pixel']} mm/px")
+            self.ui.label.setText(f"单位像素换算系数: {new_params['mm_per_pixel']} mm/pixel")
             QMessageBox.information(self, "成功", "参数更新完成")
 
     def show_patient_dialog(self):
@@ -312,11 +300,9 @@ class MainWindow(QMainWindow):
     def calculate_sigmoid_params(self, risk_thresholds):
         """动态计算Sigmoid参数，基于风险评估阈值"""
         # 默认临床映射参数（可配置）
-        mid_point_percent = 50  # 中危阈值对应百分比
-        high_risk_percent = 95  # 高危阈值预期百分比
+        high_risk_percent = 85  # 高危阈值预期百分比
 
         # 从配置中获取阈值
-        low_thresh = risk_thresholds['low']
         mid_thresh = risk_thresholds['medium']
         high_thresh = risk_thresholds['high']
 
@@ -353,11 +339,11 @@ class MainWindow(QMainWindow):
     def _score_single_nodule(self, nodule):
         """基于多模态医学标准的单结节评分（LU-RADS/TI-RADS）"""
         score = 0
-        morphology_weights = defaultdict(int)
 
         # 动态参数配置（可界面调整）
         size_rules = self.current_params['nodules']['size']  # [(5,0),(10,1),(20,2),(30,3)]
         type_weights = self.current_params['nodules']['type']  # {'ggo':1,'part-solid':2,'solid':3}
+        location_weights = self.current_params['nodules']['location']  # {'upper':1,'middle':0.5,'lower':0}
         morph_rules = self.current_params['nodules']['morphology']  # {'spiculation':2,'lobulation':1.5}
 
         # 年龄评分
@@ -396,12 +382,12 @@ class MainWindow(QMainWindow):
 
         # 3. 位置评分优化
         y_pos = nodule['position'][1]
-        if y_pos < 100:  # 上肺叶高风险区
-            score += 2
-        elif y_pos < 200:  # 中肺叶中等风险
-            score += 1
-        else:  # 下肺叶低风险
-            pass
+        if y_pos < 150:  # 上肺叶
+            score += location_weights['upper']
+        elif 150 <= y_pos < 300:  # 中肺叶
+            score += location_weights['middle']
+        else:  # 下肺叶
+            score += location_weights['lower']
 
         # 4. 形态特征检测（传统视觉实现）
         if 'morphology' in nodule:
@@ -441,6 +427,10 @@ class MainWindow(QMainWindow):
             items.append(f"毛刺({features['spiculation']}处)")
         if features['lobulation'] >= 3:
             items.append(f"分叶({features['lobulation']}分叶)")
+        if features['calcification'] > 0:
+            items.append(f"钙化({features['calcification']}处)")
+        if features['vacuolation'] > 0:
+            items.append(f"空泡({features['vacuolation']}处)")
         return " | ".join(items) if items else "未见典型恶性征象"
 
     def predict_tnm_stage(self, nodules):
@@ -605,6 +595,10 @@ class MainWindow(QMainWindow):
                 morphology_desc.append("毛刺")
             if nodule['morphology']['lobulation'] > 0:
                 morphology_desc.append("分叶")
+            if nodule['morphology']['calcification'] > 0:
+                morphology_desc.append("钙化")
+            if nodule['morphology']['vacuolation'] > 0:
+                morphology_desc.append("空泡")
             if not morphology_desc:
                 morphology_desc.append("无")
             self.ui.noduleTable.setItem(i, 3, QTableWidgetItem(" | ".join(morphology_desc)))  # 位置格式化
