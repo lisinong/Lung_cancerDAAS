@@ -2,6 +2,7 @@
 import math
 import sys
 from collections import defaultdict
+from tkinter import filedialog
 
 import cv2
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QGraphicsScene, QGraphicsPixmapItem, \
@@ -14,6 +15,7 @@ from PatientInfoDialog import PatientInfoDialog
 from ReportExportDialog import ReportExportDialog
 from RiskConfigDialog import RiskConfigDialog
 from MorphologyAnalyzer import MorphologyAnalyzer
+from tools.形态参数调试 import MorphologyTuner
 from ui_form import Ui_MainWindow
 
 
@@ -61,8 +63,7 @@ class MainWindow(QMainWindow):
                 'size': [(5, 0), (10, 1), (20, 2), (30, 3), (float('inf'), 4)],
                 'type': {'ggo': 1, 'part-solid': 2, 'solid': 3},
                 'location': {'upper': 1, 'middle': 0.5, 'lower': 0},  # 上肺叶风险更高[6](@ref)
-                'morphology': {'spiculation': 2, 'lobulation': 1.5}
-
+                'morphology': {'spiculation': 2, 'lobulation': 1.5, 'calcification': 1.0, 'vacuolation': 1.0}
             }
         }
         self.current_params = self.default_params.copy()
@@ -100,7 +101,6 @@ class MainWindow(QMainWindow):
             self.ui.startDetectionBtn.setToolTip("请先加载医学影像")
         else:
             self.ui.startDetectionBtn.setToolTip("点击开始检测")
-
         #更新导出按钮提示
         if not self._export_available:
             self.ui.exportBtn.setToolTip("请先完成检测")
@@ -529,7 +529,9 @@ class MainWindow(QMainWindow):
                     'position': ((x1 + x2) / 2, (y1 + y2) / 2),
                     'morphology': {
                         'spiculation': morphology['spiculation'],
-                        'lobulation': morphology['lobulation']
+                        'lobulation': morphology['lobulation'],
+                        'calcification': morphology['calcification'],
+                        'vacuolation': morphology['vacuolation']
                     },
                     'roi_shape': roi.shape[:2]  # 用于质量检查
                 })
@@ -578,11 +580,6 @@ class MainWindow(QMainWindow):
 
     def update_risk_progress(self, percentage):
         """更新风险进度条"""
-        # risk_map = {
-        #     "高危": 85,
-        #     "中危": 60,
-        #     "低危": 30
-        # }
         self.ui.riskProgressBar.setValue(int(percentage * 100))
         self.ui.riskProgressBar.setFormat("恶性概率：" + "%.02f %%" % percentage)
 

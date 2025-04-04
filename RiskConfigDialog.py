@@ -153,10 +153,14 @@ class RiskConfigDialog(QDialog):
         morph_layout = QFormLayout()
         self.morph_spic = QDoubleSpinBox()  # 毛刺征
         self.morph_lob = QDoubleSpinBox()  # 分叶征
-        for spin in [self.morph_spic, self.morph_lob]:
+        self.morph_vac = QDoubleSpinBox()  #空泡征
+        self.morph_cal= QDoubleSpinBox()  #钙化
+        for spin in [self.morph_spic, self.morph_lob,self.morph_vac,self.morph_cal]:
             spin.setRange(0, 5)
         morph_layout.addRow("毛刺征:", self.morph_spic)
         morph_layout.addRow("分叶征:", self.morph_lob)
+        morph_layout.addRow("空泡征:", self.morph_vac)
+        morph_layout.addRow("钙化:", self.morph_cal)
         morph_group.setLayout(morph_layout)
 
         # 阈值设置组
@@ -250,6 +254,8 @@ class RiskConfigDialog(QDialog):
         morph = params['nodules']['morphology']
         self.morph_spic.setValue(morph.get('spiculation', 0))
         self.morph_lob.setValue(morph.get('lobulation', 0))
+        self.morph_vac.setValue(morph.get('vacuolation',0))
+        self.morph_cal.setValue(morph.get('calcification',0))
 
     def get_params(self):
         """从界面获取参数"""
@@ -297,8 +303,11 @@ class RiskConfigDialog(QDialog):
                 'morphology': {
                     'spiculation': self.morph_spic.value(),
                     'lobulation': self.morph_lob.value(),
+                    'vacuolation':self.morph_vac.value(),
+                    'calcification':self.morph_cal.value()
                 }
             }
+
         }
 
         # 解析病史关键词
