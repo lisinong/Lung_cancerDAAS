@@ -300,7 +300,13 @@ class MainWindow(QMainWindow):
     def calculate_sigmoid_params(self, risk_thresholds):
         """动态计算Sigmoid参数，基于风险评估阈值"""
         # 默认临床映射参数（可配置）
-        high_risk_percent = 85  # 高危阈值预期百分比
+        with open("param/config.yaml", 'r', encoding='utf-8-sig') as f:
+            config = yaml.safe_load(f)
+        if 'high_risk_percent' in config:
+            high_risk_percent = config['risk_thresholds']
+        else:
+            # 默认高危阈值预期百分比
+            high_risk_percent = 85  # 高危阈值预期百分比
 
         # 从配置中获取阈值
         mid_thresh = risk_thresholds['medium']
