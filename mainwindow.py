@@ -303,7 +303,7 @@ class MainWindow(QMainWindow):
         with open("param/config.yaml", 'r', encoding='utf-8-sig') as f:
             config = yaml.safe_load(f)
         if 'high_risk_percent' in config:
-            high_risk_percent = config['risk_thresholds']
+            high_risk_percent = config['high_risk_percent']
         else:
             # 默认高危阈值预期百分比
             high_risk_percent = 85  # 高危阈值预期百分比

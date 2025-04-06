@@ -1,17 +1,17 @@
 import os
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+import numpy as np
+import pydicom
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QComboBox,
-    QSpinBox, QDialogButtonBox, QPushButton, QVBoxLayout, QFileDialog, QMessageBox, QLabel, QTextEdit, QGraphicsScene,
-    QGraphicsPixmapItem
+    QSpinBox, QDialogButtonBox, QPushButton, QVBoxLayout, QFileDialog, QMessageBox, QTextEdit,
 )
 
 
 class PatientInfoDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.dicom_dataset = None
         self.setWindowTitle("患者信息录入")
         self.layout = QVBoxLayout()
 
@@ -52,12 +52,27 @@ class PatientInfoDialog(QDialog):
 
         self.setLayout(self.layout)
 
+    # def load_medical_image(self):
+    #     """医学影像加载逻辑"""
+    #     file_dialog = QFileDialog(self)
+    #     file_dialog.setFileMode(QFileDialog.ExistingFile)
+    #     file_dialog.setNameFilters([
+    #         "图像文件 (*.png *.jpg *.jpeg *.bmp)",
+    #         "所有文件 (*.*)"
+    #     ])
+    #
+    #     if file_dialog.exec():
+    #         selected_files = file_dialog.selectedFiles()
+    #         if not selected_files:
+    #             return
+    #         self.image_path = selected_files[0]
+    #         QMessageBox.information(self, "加载成功", f"已加载影像文件：{os.path.basename(self.image_path)}")
     def load_medical_image(self):
-        """医学影像加载逻辑"""
+        """医学影像加载逻辑（支持DICOM格式）"""
         file_dialog = QFileDialog(self)
         file_dialog.setFileMode(QFileDialog.ExistingFile)
         file_dialog.setNameFilters([
-            "图像文件 (*.png *.jpg *.jpeg *.bmp)",
+            "DICOM文件 (*.dcm)",
             "所有文件 (*.*)"
         ])
 
@@ -65,22 +80,57 @@ class PatientInfoDialog(QDialog):
             selected_files = file_dialog.selectedFiles()
             if not selected_files:
                 return
-            self.image_path = selected_files[0]
-            QMessageBox.information(self, "加载成功", f"已加载影像文件：{os.path.basename(self.image_path)}")
-            # try:
-            #     # 预览缩略图
-            #     pixmap = QPixmap(self.image_path)
-            #     if pixmap.isNull():
-            #         raise ValueError("无法加载图像文件")
-            #     scene = QGraphicsScene()
-            #     item = QGraphicsPixmapItem(pixmap)
-            #     scene.addItem(item)
-            #     self.ui.graphicsView.setScene(scene)
-            #     self.ui.graphicsView.fitInView(item, Qt.KeepAspectRatio)
-            #     QMessageBox.information(self, "加载成功", f"已加载影像文件：{os.path.basename(self.image_path)}")
-            # except Exception as e:
-            #     QMessageBox.critical(self, "错误", f"加载影像失败：{str(e)}")
-            #     self.image_path = None
+
+            try:
+                # 读取DICOM文件
+                self.image_path = selected_files[0]
+                dicom_dataset = pydicom.dcmread(self.image_path)
+
+                # 提取患者信息
+                patient_info = {
+                    'name': getattr(dicom_dataset, 'PatientName', '未知'),
+                    'sex': getattr(dicom_dataset, 'PatientSex', '未知'),
+                    'age': self._parse_dicom_age(getattr(dicom_dataset, 'PatientAge', '')),
+                    'hu_values': None
+                }
+
+                # 获取HU值（可能需要Rescale Slope/Intercept）
+                pixel_array = dicom_dataset.pixel_array
+                slope = getattr(dicom_dataset, 'RescaleSlope', 1)
+                intercept = getattr(dicom_dataset, 'RescaleIntercept', 0)
+                hu_values = pixel_array * slope + intercept
+
+                patient_info['hu_values'] = hu_values
+
+                # 存储DICOM数据集供后续使用
+                self.dicom_dataset = dicom_dataset
+
+                # 显示加载信息
+                info_message = (
+                    f"成功加载DICOM文件：{os.path.basename(self.image_path)}\n"
+                    f"患者姓名：{patient_info['name']}\n"
+                    f"性别：{patient_info['sex']}\n"
+                    f"年龄：{patient_info['age']}\n"
+                    f"HU值范围：{np.min(hu_values)} ~ {np.max(hu_values)}"
+                )
+
+                QMessageBox.information(self, "加载成功", info_message)
+
+            except Exception as e:
+                QMessageBox.critical(self, "读取错误",
+                                     f"DICOM文件解析失败：{str(e)}")
+                return
+
+    def _parse_dicom_age(self, age_str):
+        """解析DICOM格式的年龄字符串（例如：'030Y' -> 30）"""
+        if not age_str:
+            return "未知"
+        try:
+            # 提取数字部分（DICOM格式通常为"###Y"）
+            age = int(''.join(filter(str.isdigit, age_str)))
+            return f"{age}岁"
+        except:
+            return "未知"
 
     def validate_input(self):
         """提交前的综合验证"""
