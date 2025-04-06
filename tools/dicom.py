@@ -15,6 +15,7 @@ def create_sample_dcm(output_path):
     ds = FileDataset(output_path, {}, file_meta=file_meta, preamble=b"\0" * 128)
 
     # 添加患者信息
+    ds.SpecificCharacterSet = "GB18030"  # 或 "ISO_IR 192"（UTF-8）
     ds.PatientName = "张^三"
     ds.PatientSex = "M"
     ds.PatientAge = "045Y"  # DICOM格式的年龄表示
@@ -27,9 +28,13 @@ def create_sample_dcm(output_path):
     ds.KVP = 120  # 管电压
 
     # 设置扫描参数
-    ds.RescaleSlope = 1.0
-    ds.RescaleIntercept = -1024.0  # 将原始数据转换为HU值
-
+    ds.WindowCenter = -600  # 窗位
+    ds.WindowWidth = 1600  # 窗宽
+    ds.RescaleSlope = 1.0  # 像素值校正参数（应保持原值）
+    ds.RescaleIntercept = -1024  # 转HU值的基准参数 （应保持原值）
+    ds.SamplesPerPixel = 1  # 单通道的CT灰度图像
+    ds.PhotometricInterpretation = "MONOCHROME2"  # DICOM标准灰度表示方式
+    ds.PlanarConfiguration = 0  # 像素存储方式（默认值）
     # 创建10x10的测试像素数据（CT值范围）
     pixel_data = np.array([
         [-1000, -200, 0, 40, 1000],

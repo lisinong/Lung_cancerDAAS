@@ -4,10 +4,10 @@ calcification:                #钙化
 lobulation:                   #分叶
   block_size: 11              # 自适应阈值块大小
   c: 2                        # 自适应阈值常数
-  epsilon: 0.03               # 轮廓近似阈值
+  contour_thresh: 0.03               # 轮廓近似阈值
 spiculation:                  #毛刺
   max_gap: 5                  #最大线段间隙
-  min_len: 20                 #最小线段长度
+  min_length: 20                 #最小线段长度
   hough_threshold: 50         # 霍夫变换阈值
 vacuolation:                  #空泡征
   intensity_thresh: 21.09375  # 强度阈值

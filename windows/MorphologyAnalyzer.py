@@ -1,3 +1,5 @@
+import os
+
 import cv2
 import numpy as np
 import yaml
@@ -31,7 +33,7 @@ class MorphologyAnalyzer:
     def load_config(self, filepath):
         """从YAML文件加载配置"""
         try:
-            with open(filepath, 'r') as f:
+            with open(filepath, 'r',encoding='utf-8-sig') as f:
                 loaded_config = yaml.safe_load(f)
                 self._validate_config(loaded_config)
                 self.config = loaded_config
@@ -64,7 +66,8 @@ class MorphologyAnalyzer:
         # 检查输入图像
         if roi_image is None or not isinstance(roi_image, np.ndarray):
             raise ValueError("Invalid input image")
-        self.load_config('../param/Morphology.yaml')
+        parent_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
+        self.load_config(os.path.join(parent_path, 'param', 'Morphology.yaml'))
         config = self.config
         # 预处理
         gray = cv2.cvtColor(roi_image, cv2.COLOR_BGR2GRAY)

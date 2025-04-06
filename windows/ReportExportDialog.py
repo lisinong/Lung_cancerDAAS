@@ -28,22 +28,17 @@ class ReportExportDialog(QDialog):
 
     def generate_preview(self):
         """生成预览文本"""
-        content = f"""
-        ====== 肺癌诊断报告 ======
-
-        患者信息:
-        姓名: {self.report_data['patient_info']['name']}
-        性别: {self.report_data['patient_info']['gender']}
-        年龄: {self.report_data['patient_info']['age']}
-        病史: {self.report_data['patient_info']['medical_history']}
-
-        结节特征:
-        {self.report_data['nodule_features']}
-        分期预测：
-        {self.report_data['stage_prediction']}
-        临床建议:
-        {self.report_data['clinical_advice']}
-        """
+        content = (
+            "====== 肺癌诊断报告 ======\n\n"
+            f"患者信息:\n"
+            f"姓名: {self.report_data['patient_info']['name']}\n"
+            f"性别: {self.report_data['patient_info']['gender']}\n"
+            f"年龄: {self.report_data['patient_info']['age']}\n"
+            f"病史: {self.report_data['patient_info']['medical_history']}\n\n"
+            f"结节特征:\n{self.report_data['nodule_features']}\n\n"
+            f"分期预测：\n{self.report_data['stage_prediction']}\n\n"
+            f"临床建议:\n{self.report_data['clinical_advice']}"
+        )
         self.preview_edit.setPlainText(content)
 
     def export_to_word(self):
@@ -57,22 +52,19 @@ class ReportExportDialog(QDialog):
         title.runs[0].bold = True
 
         # 患者信息表格
-        doc.add_paragraph('患者信息:')
-        patient_table = doc.add_table(rows=4, cols=2)
-        patient_table.cell(0, 0).text = '姓名'
-        patient_table.cell(0, 1).text = self.report_data['patient_info']['name']
-        patient_table.cell(1, 0).text = '性别'
-        patient_table.cell(1, 1).text = self.report_data['patient_info']['gender']
-        patient_table.cell(2, 0).text = '年龄'
-        patient_table.cell(2, 1).text = str(self.report_data['patient_info']['age'])
-        patient_table.cell(3, 0).text = '病史'
-        patient_table.cell(3, 1).text = self.report_data['patient_info']['medical_history']
+        patient_info = (
+            f"姓名: {self.report_data['patient_info']['name']}\n"
+            f"性别: {self.report_data['patient_info']['gender']}\n"
+            f"年龄: {self.report_data['patient_info']['age']}\n"
+            f"病史: {self.report_data['patient_info']['medical_history']}"
+        )
+        doc.add_paragraph(patient_info)
 
-        doc.add_paragraph('结节特征:').bold = True
+        doc.add_paragraph('结节特征:', style="Heading 2").bold = True
         doc.add_paragraph(self.report_data['nodule_features'])
-        doc.add_paragraph('分期预测:').bold = True
+        doc.add_paragraph('分期预测:', style="Heading 2").bold = True
         doc.add_paragraph(self.report_data['stage_prediction'])
-        doc.add_paragraph('临床建议:').bold = True
+        doc.add_paragraph('临床建议:', style="Heading 2").bold = True
         doc.add_paragraph(self.report_data['clinical_advice'])
 
         # 保存文件

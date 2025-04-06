@@ -207,13 +207,20 @@ class MainWindow(QMainWindow):
                 location = "下肺叶"
 
             # 标注主结节
-            prefix = "★主结节 " if nodule == main_nodule else f"结节{i + 1} "
+            feature_line = []
+            if not is_single:
+                prefix = "★主结节 " if nodule == main_nodule else f"结节{i + 1} "
+                feature_line.append(prefix)  # 不立即添加换行符
 
-            features.append(
-                f"{prefix}| {size_desc} | "
-                f"类型：{type_desc} | "
+            feature_line.extend([
+                f"{size_desc} | ",
+                f"类型：{type_desc} | ",
+                f"形态: {self._format_morphology(nodule['morphology'])} | ",
                 f"位置：{location}"
-            )
+            ])
+
+            # 合并为单行字符串后再添加到列表
+            features.append("".join(feature_line))
 
         # 添加医学分类说明
         if not is_single:
@@ -241,7 +248,7 @@ class MainWindow(QMainWindow):
             self.medical_analysis(self.nodules)
         else:
             self.ui.riskLevelLabel.setText("恶性风险: 未检测到结节")
-            self.ui.riskDetailLabel.setText("特征评估:无")
+            self.ui.riskDetailLabel.setText("特征:无")
             self.ui.stageLabel.setText("肺癌分期: 无")
             self.ui.stageDetailLabel.setText("暂无描述")
 
@@ -256,7 +263,7 @@ class MainWindow(QMainWindow):
         risk_level, percentage, main_nodule_detail_desc = self.assess_malignant_risk(nodules)
 
         self.ui.riskLevelLabel.setText(f"风险水平：{risk_level}")
-        self.ui.riskDetailLabel.setText(f"特征评估: {main_nodule_detail_desc}")
+        self.ui.riskDetailLabel.setText(f"主结节特征: {main_nodule_detail_desc}")
         self.update_risk_progress(percentage)  # 风险进度条更新
 
         # TNM分期预测
@@ -430,9 +437,9 @@ class MainWindow(QMainWindow):
         if features['spiculation'] > 0:
             items.append(f"毛刺({features['spiculation']}处)")
         if features['lobulation'] >= 3:
-            items.append(f"分叶({features['lobulation']}分叶)")
+            items.append(f"分叶({features['lobulation']}处)")
         if features['calcification'] > 0:
-            items.append(f"钙化({features['calcification']}处)")
+            items.append(f"钙化({int(features['calcification'])}处)")
         if features['vacuolation'] > 0:
             items.append(f"空泡({features['vacuolation']}处)")
         return " | ".join(items) if items else "未见典型恶性征象"
@@ -513,12 +520,22 @@ class MainWindow(QMainWindow):
                 width = x2 - x1
                 height = y2 - y1
                 diameter = max(width, height) * self.default_params['mm_per_pixel']
+                # 结节类型
+                nodule_type = result.names[cls]
+                if result.names[cls] in ['nodule']:
+                    mean_hu = float(self.patient_info['mean_hu'])
+                    if mean_hu < -400:
+                        nodule_type = "ggo"
+                    elif -400 <= mean_hu < -200:
+                        nodule_type = "part-solid"
+                    else:
+                        nodule_type = "solid"
                 # ROI特征分析
                 roi = self._crop_roi(cv2.imread(self.current_image_path), (x1, y1, x2, y2))
                 morphology = MorphologyAnalyzer().analyze(roi)
                 nodules.append({
                     'diameter_mm': diameter,
-                    'type': result.names[cls],
+                    'type': nodule_type,
                     'confidence': round(conf, 2),
                     'position': ((x1 + x2) / 2, (y1 + y2) / 2),
                     'morphology': {
@@ -565,9 +582,13 @@ class MainWindow(QMainWindow):
             rect = scene.addRect(x1, y1, x2 - x1, y2 - y1)
             color = QColor(0, 255, 0) if nodule['diameter_mm'] < 30 else QColor(255, 0, 0)
             rect.setPen(QPen(color, 2))
-
+            nodule_type_map = {
+                'solid': '实性结节',
+                'part-solid': '部分实性结节',
+                'ggo': '磨玻璃结节'
+            }
             # 添加标注文本
-            text = f"{nodule['type']} {nodule['diameter_mm']:.1f}mm"
+            text = f"{nodule_type_map.get(nodule['type'], '未知')} {nodule['diameter_mm']:.1f}mm"
             text_item = scene.addText(text)
             text_item.setDefaultTextColor(color)
             text_item.setPos(x1, y1 - 20)
@@ -588,12 +609,16 @@ class MainWindow(QMainWindow):
         self.ui.noduleTable.setHorizontalHeaderLabels([
             "编号", "直径(mm)", "类型", "形态", "位置"
         ])
-
+        nodule_type_map = {
+            'solid': '实性结节',
+            'part-solid': '部分实性结节',
+            'ggo': '磨玻璃结节'
+        }
         # 填充数据
         for i, nodule in enumerate(nodules):
             self.ui.noduleTable.setItem(i, 0, QTableWidgetItem(str(i + 1)))
             self.ui.noduleTable.setItem(i, 1, QTableWidgetItem(f"{nodule['diameter_mm']:.1f}"))
-            self.ui.noduleTable.setItem(i, 2, QTableWidgetItem(nodule['type']))
+            self.ui.noduleTable.setItem(i, 2, QTableWidgetItem(nodule_type_map.get(nodule['type'], '其他类型')))
             morphology_desc = []
             if nodule['morphology']['spiculation'] > 0:
                 morphology_desc.append("毛刺")

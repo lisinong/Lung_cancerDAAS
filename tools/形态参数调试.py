@@ -130,8 +130,8 @@ class MorphologyAnalyzer:
 
         # 执行所有特征检测
         # self._detect_spiculation(display)  # 毛刺（红色）
-        # self._detect_lobulation(display)  # 分叶（绿色）
-        self._detect_vacuole(display)  # 空泡（黄色）
+        self._detect_lobulation(display)  # 分叶（绿色）
+        # self._detect_vacuole(display)  # 空泡（黄色）
         # self._detect_calcification(display)  # 钙化（蓝色）
 
         # 更新显示
@@ -250,7 +250,7 @@ def _crop_roi(image, coords, padding=5):
 if __name__ == "__main__":
     # 使用示例
     root = tk.Tk()
-    model = YOLO("/models/best.pt")
+    model = YOLO("C:\\Users\\22662\\Desktop\\Graduation Project\\UI\\models\\best.pt")
     model.to('cuda')
     results = model("C:\\Users\\22662\\Desktop\\Graduation Project\\UI\\images\\0005.png", conf=0.5)
     nodules = []
