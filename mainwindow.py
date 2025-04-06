@@ -1,8 +1,6 @@
 # This Python file uses the following encoding: utf-8
 import math
 import sys
-from collections import defaultdict
-from tkinter import filedialog
 
 import cv2
 import yaml
@@ -12,10 +10,10 @@ from PySide6.QtGui import QPixmap, QPen, QColor
 from PySide6.QtCore import Qt
 from ultralytics import YOLO
 
-from PatientInfoDialog import PatientInfoDialog
-from ReportExportDialog import ReportExportDialog
-from RiskConfigDialog import RiskConfigDialog
-from MorphologyAnalyzer import MorphologyAnalyzer
+from windows.PatientInfoDialog import PatientInfoDialog
+from windows.ReportExportDialog import ReportExportDialog
+from windows.RiskConfigDialog import RiskConfigDialog
+from windows.MorphologyAnalyzer import MorphologyAnalyzer
 from ui_form import Ui_MainWindow
 
 
@@ -225,7 +223,7 @@ class MainWindow(QMainWindow):
     def process_image(self, file_path):
 
         # YOLO模型推理
-        model = YOLO("best.pt")
+        model = YOLO("models/best.pt")
         model.to('cuda')
         results = model(file_path, conf=0.5)
 

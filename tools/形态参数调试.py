@@ -250,7 +250,7 @@ def _crop_roi(image, coords, padding=5):
 if __name__ == "__main__":
     # 使用示例
     root = tk.Tk()
-    model = YOLO("C:\\Users\\22662\\Desktop\\Graduation Project\\UI\\best.pt")
+    model = YOLO("/models/best.pt")
     model.to('cuda')
     results = model("C:\\Users\\22662\\Desktop\\Graduation Project\\UI\\images\\0005.png", conf=0.5)
     nodules = []

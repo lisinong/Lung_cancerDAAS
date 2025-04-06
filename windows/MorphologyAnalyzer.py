@@ -64,7 +64,7 @@ class MorphologyAnalyzer:
         # 检查输入图像
         if roi_image is None or not isinstance(roi_image, np.ndarray):
             raise ValueError("Invalid input image")
-        self.load_config('param/Morphology.yaml')
+        self.load_config('../param/Morphology.yaml')
         config = self.config
         # 预处理
         gray = cv2.cvtColor(roi_image, cv2.COLOR_BGR2GRAY)
