@@ -260,7 +260,7 @@ if __name__ == "__main__":
             # 获取检测框信息
             x1, y1, x2, y2 = box.xyxy[0].tolist()
             # 加载ROI图像（替换为你的实际路径）
-            roi = _crop_roi(cv2.imread("C:\\Users\\22662\\Desktop\\Graduation Project\\UI\\images\\0005.png"),
+            roi = _crop_roi(cv2.imread("/resources/images\\0005.png"),
                             (x1, y1, x2, y2))
     # 初始化分析器
     app = MorphologyAnalyzer(root, roi)

@@ -6,7 +6,7 @@ import cv2
 import yaml
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QGraphicsScene, QGraphicsPixmapItem, \
     QTableWidgetItem
-from PySide6.QtGui import QPixmap, QPen, QColor
+from PySide6.QtGui import QPixmap, QPen, QColor, QIcon
 from PySide6.QtCore import Qt
 from ultralytics import YOLO
 

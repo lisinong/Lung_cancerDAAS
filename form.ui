@@ -25,6 +25,10 @@
   <property name="windowTitle">
    <string>肺癌风险评估系统</string>
   </property>
+  <property name="windowIcon">
+   <iconset>
+    <normaloff>resources/Main .ico</normaloff>resources/Main .ico</iconset>
+  </property>
   <widget class="QWidget" name="centralwidget">
    <widget class="QPushButton" name="startDetectionBtn">
     <property name="enabled">
@@ -343,7 +347,7 @@ M描述: 无远端转移</string>
           <string/>
          </property>
          <property name="pixmap">
-          <pixmap>images/TNM分期示意图.jpg</pixmap>
+          <pixmap>resources/ico/TNM分期示意图.jpg</pixmap>
          </property>
          <property name="scaledContents">
           <bool>true</bool>
