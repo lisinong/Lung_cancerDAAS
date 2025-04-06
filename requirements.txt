@@ -1,1 +1,8 @@
 PySide6
+numpy>=1.23.0
+pydicom
+opencv-python
+ultralytics>=8.0.0
+pyyaml
+torch==2.0.0+cu118
+

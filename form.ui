@@ -27,7 +27,7 @@
   </property>
   <property name="windowIcon">
    <iconset>
-    <normaloff>resources/Main .ico</normaloff>resources/Main .ico</iconset>
+    <normaloff>resources/006肺癌.svg</normaloff>resources/006肺癌.svg</iconset>
   </property>
   <widget class="QWidget" name="centralwidget">
    <widget class="QPushButton" name="startDetectionBtn">
@@ -36,8 +36,8 @@
     </property>
     <property name="geometry">
      <rect>
-      <x>20</x>
-      <y>10</y>
+      <x>30</x>
+      <y>20</y>
       <width>116</width>
       <height>33</height>
      </rect>
@@ -53,7 +53,7 @@
     <property name="geometry">
      <rect>
       <x>0</x>
-      <y>60</y>
+      <y>80</y>
       <width>640</width>
       <height>481</height>
      </rect>
@@ -374,8 +374,8 @@ M描述: 无远端转移</string>
    <widget class="QPushButton" name="paramButton">
     <property name="geometry">
      <rect>
-      <x>160</x>
-      <y>10</y>
+      <x>170</x>
+      <y>20</y>
       <width>116</width>
       <height>33</height>
      </rect>
@@ -387,8 +387,8 @@ M描述: 无远端转移</string>
    <widget class="QPushButton" name="addPatientBtn">
     <property name="geometry">
      <rect>
-      <x>300</x>
-      <y>10</y>
+      <x>310</x>
+      <y>20</y>
       <width>116</width>
       <height>33</height>
      </rect>
@@ -403,8 +403,8 @@ M描述: 无远端转移</string>
     </property>
     <property name="geometry">
      <rect>
-      <x>440</x>
-      <y>10</y>
+      <x>450</x>
+      <y>20</y>
       <width>116</width>
       <height>33</height>
      </rect>
