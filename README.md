@@ -76,8 +76,7 @@ Lung_cancerDAAS/
 ├── models/
 │   ├── best.pt
 └── resources/
-    ├── icons/
-    ├── images/
+
 ```
 
 
