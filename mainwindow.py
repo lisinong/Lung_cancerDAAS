@@ -159,7 +159,6 @@ class MainWindow(QMainWindow):
             }
             dialog = ReportExportDialog(report_data, self)
             dialog.exec()
-            QMessageBox.information(self, "导出", "报告导出成功")
         else:
             QMessageBox.warning(self, "错误", "请先完成检测")
 
@@ -233,7 +232,9 @@ class MainWindow(QMainWindow):
         model = YOLO("models/best.pt")
         model.to('cuda')
         results = model(file_path, conf=0.5)
-
+        if results[0].boxes is None:
+            QMessageBox.warning(self, "警告", "未检测到结节，请检查影像质量或模型配置")
+            return
         # 显示推理时间
         self.show_inference_time(results)
 

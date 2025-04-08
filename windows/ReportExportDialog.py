@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QFileDialog
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton, QFileDialog, QMessageBox
 from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
@@ -71,4 +71,5 @@ class ReportExportDialog(QDialog):
         path, _ = QFileDialog.getSaveFileName(self, "保存报告", self.report_data['patient_info']['name'], "Word 文档 (*.docx)")
         if path:
             doc.save(path)
+            QMessageBox.information(self, "导出成功", "报告已成功导出！")
             self.accept()

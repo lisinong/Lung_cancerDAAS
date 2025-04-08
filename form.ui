@@ -347,7 +347,7 @@ M描述: 无远端转移</string>
           <string/>
          </property>
          <property name="pixmap">
-          <pixmap>resources/ico/TNM分期示意图.jpg</pixmap>
+          <pixmap>resources/TNM分期示意图.jpg</pixmap>
          </property>
          <property name="scaledContents">
           <bool>true</bool>

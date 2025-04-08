@@ -1,5 +1,6 @@
 import os
 
+import cv2
 import numpy as np
 import pydicom
 from PySide6.QtWidgets import (
@@ -11,6 +12,9 @@ from PySide6.QtWidgets import (
 class PatientInfoDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.mean_hu = None
+        self.output_dir = "./yolo_dataset"  # 输出目录
+        self.DICOM = None
         self.hu_values = None
         self.dicom_dataset = None
         self.setWindowTitle("患者信息录入")
@@ -89,12 +93,14 @@ class PatientInfoDialog(QDialog):
 
             try:
                 # 读取DICOM文件
-                self.image_path = selected_files[0]
-                dicom_dataset = pydicom.dcmread(self.image_path)
+                self.DICOM = selected_files[0]
+                dicom_dataset = pydicom.dcmread(self.DICOM)
 
                 # --- 字符集处理 ---
-                encoding = getattr(dicom_dataset, 'SpecificCharacterSet', 'GB18030')
-
+                getattr(dicom_dataset, 'SpecificCharacterSet', 'GB18030')
+                for tag in ['PatientName', 'PatientSex', 'PatientAge']:
+                    if not hasattr(dicom_dataset, tag):
+                        raise ValueError(f"DICOM文件缺少必要字段: {tag}")
                 # --- 自动填充表单 ---
                 # 姓名填充
                 patient_name = str(dicom_dataset.PatientName)
@@ -102,15 +108,19 @@ class PatientInfoDialog(QDialog):
 
                 # 性别填充
                 sex_mapping = {'M': '男', 'F': '女'}
-                patient_sex = sex_mapping.get(getattr(dicom_dataset, 'PatientSex', 'M'), '未知')
-                index = self.gender_combo.findText(patient_sex)
-                self.gender_combo.setCurrentIndex(index if index != -1 else 0)
+                patient_sex = sex_mapping.get(
+                    getattr(dicom_dataset, 'PatientSex', ''),
+                    '未知'
+                )
+                self.gender_combo.setCurrentText(patient_sex)
 
                 # 年龄填充
-                age_str = getattr(dicom_dataset, 'PatientAge', '')
-                age = self._parse_dicom_age(age_str)
-                if age != "未知":
-                    self.age_spin.setValue(int(age))
+                age = self._parse_dicom_age(dicom_dataset.PatientAge)
+                if age is not None:
+                    self.age_spin.setValue(age)
+                else:
+                    self.age_spin.clear()
+                    print("年龄字段格式无效，已清空输入框")
 
                 # --- 提取CT数据 ---
                 pixel_array = dicom_dataset.pixel_array
@@ -119,21 +129,85 @@ class PatientInfoDialog(QDialog):
                 self.hu_values = pixel_array * slope + intercept  # 转换为HU值
                 self.mean_hu = np.mean(self.hu_values)  # 存储HU值
                 self.mean_hu_edit.setText(f"{self.mean_hu:.2f}")  # 显示平均HU值
-                self.ct_image_data = pixel_array  # 存储原始CT数据
+                os.makedirs(self.output_dir, exist_ok=True)
+                self.image_path = self._dicom_to_yolo_image(self.output_dir)  # 存储原始CT数据
 
                 QMessageBox.information(self, "DICOM加载成功",
                                         f"患者信息已自动填充\nHU值范围：{self.hu_values.min()}~{self.hu_values.max()}")
 
             except Exception as e:
-                QMessageBox.critical(self, "错误", f"DICOM解析失败：{str(e)}")
+                QMessageBox.critical(self, "DICOM错误",
+                                     f"解析失败: {str(e)}\n"
+                                     f"建议检查：\n"
+                                     "1. 文件是否完整\n"
+                                     "2. PatientAge字段格式是否为'045Y'样式\n"
+                                     "3. 必需字段(PatientName/Sex/Age)是否存在")
+
+    def _simulate_nodule(self, hu_values, nodule_size=2, hu_value=800):
+        """在CT图像中模拟磨玻璃结节"""
+        # 随机生成结节中心坐标
+        # 修正中心坐标生成方式（避免越界）
+        center_y = np.random.randint(nodule_size, hu_values.shape[0] - nodule_size)
+        center_x = np.random.randint(nodule_size, hu_values.shape[1] - nodule_size)
+
+        # 创建圆形掩模
+        y, x = np.ogrid[-center_y:hu_values.shape[0] - center_y,
+               -center_x:hu_values.shape[1] - center_x]
+        mask = x ** 2 + y ** 2 <= nodule_size ** 2
+        hu_values[mask] = hu_value
+
+        # 计算YOLO格式的归一化坐标[2](@ref)
+        x_center = (center_x + nodule_size / 2) / hu_values.shape[1]
+        y_center = (center_y + nodule_size / 2) / hu_values.shape[0]
+        width = nodule_size / hu_values.shape[1]
+        height = nodule_size / hu_values.shape[0]
+
+        return hu_values, (x_center, y_center, width, height)
+
+    def _dicom_to_yolo_image(self, output_dir):
+        """DICOM转YOLO格式"""
+        try:
+            if self.hu_values is None:
+                raise ValueError("HU值未初始化")
+            # 模拟结节生成
+            simulated_hu, bbox = self._simulate_nodule(self.hu_values.copy())
+
+            # 窗宽窗位调整（肺窗设置）[4,5](@ref)
+            window_center = -600
+            window_width = 1500
+            hu_min = window_center - window_width // 2
+            hu_max = window_center + window_width // 2
+            hu_clipped = np.clip(simulated_hu, hu_min, hu_max)
+            normalized = ((hu_clipped - hu_min) / window_width) * 255
+            image_8bit = normalized.astype(np.uint8)
+
+            # 尺寸调整为YOLO推荐尺寸[6](@ref)
+            resized = cv2.resize(image_8bit, (640, 640), interpolation=cv2.INTER_NEAREST)
+
+            # 添加对比度增强
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            enhanced = clahe.apply(resized)
+
+            # 保存处理后的图像
+            output_path = os.path.join(output_dir, "yolo_ready.png")
+            cv2.imwrite(output_path, enhanced)
+            return output_path
+        except Exception as e:
+            QMessageBox.critical(self, "转换错误", f"DICOM处理失败：{str(e)}")
+            return None
 
     def _parse_dicom_age(self, age_str):
-        """返回整数年龄（非字符串）"""
-        if not age_str:
-            return None
+        """更健壮的DICOM年龄解析方法"""
         try:
-            return int(''.join(filter(str.isdigit, age_str)))
-        except:
+            # 处理空值或非字符串类型
+            age_str = str(age_str) if age_str is not None else ""
+            # 提取数字部分（兼容'045Y'、'60'等格式）
+            digits = ''.join(filter(str.isdigit, age_str))
+            if not digits:
+                return None  # 明确返回None表示无效值
+            return int(digits)
+        except Exception as e:
+            print(f"年龄解析错误: {str(e)}")
             return None
 
     def validate_input(self):
