@@ -5,25 +5,25 @@ import numpy as np
 import yaml
 
 
-class MorphologyAnalyzer:
+class MorphologyAnalyzerbak:
     def __init__(self):
         # 形态特征阈值配置
         self.config = {
-            'spiculation': {  #毛刺
+            'spiculation': {  # 毛刺
                 'hough_threshold': 50,  # 霍夫变换阈值
                 'min_length': 20,  # 最小线段长度
                 'max_gap': 5  # 最大线段间隙
             },
-            'lobulation': {  #分叶
+            'lobulation': {  # 分叶
                 'block_size': 11,  # 自适应阈值块大小
                 'c': 2,  # 自适应阈值常数
                 'contour_thresh': 0.03  # 轮廓近似阈值
             },
-            'vacuolation': {  #空泡征
+            'vacuolation': {  # 空泡征
                 'intensity_thresh': 21.09375,  # 强度阈值
                 'area_thresh': 5  # 面积阈值
             },
-            'calcification': {  #钙化
+            'calcification': {  # 钙化
                 'hu_thresh': 150,  # HU值阈值
                 'hu_scale_factor': 2  # HU值缩放因子
             },
@@ -33,7 +33,7 @@ class MorphologyAnalyzer:
     def load_config(self, filepath):
         """从YAML文件加载配置"""
         try:
-            with open(filepath, 'r',encoding='utf-8-sig') as f:
+            with open(filepath, 'r', encoding='utf-8-sig') as f:
                 loaded_config = yaml.safe_load(f)
                 self._validate_config(loaded_config)
                 self.config = loaded_config
@@ -136,3 +136,197 @@ class MorphologyAnalyzer:
         pseudo_hu = (gray_img - gray_img.mean()) * params.get('hu_scale_factor', 2)
         calcified_area = np.sum(pseudo_hu > params.get('hu_thresh', 130)) * (mm_per_pixel ** 2)
         return calcified_area
+
+
+class MorphologyAnalyzer:
+    def __init__(self):
+        # 形态特征阈值配置
+        self.avg_HU = None  # 平均HU值
+        self.dicom_metadata = {}  # 初始化DICOM元数据存储
+        self.enhancement_data = None  # 增强CT数据
+        self.config = {
+            'spiculation': {  # 毛刺
+                'hough_threshold': 50,  # 霍夫变换阈值
+                'min_length': 20,  # 最小线段长度
+                'max_gap': 5  # 最大线段间隙
+            },
+            'lobulation': {  # 分叶
+                'block_size': 11,  # 自适应阈值块大小
+                'c': 2,  # 自适应阈值常数
+                'contour_thresh': 0.03  # 轮廓近似阈值
+            },
+            'vacuolation': {  # 空泡征
+                'intensity_thresh': 21.09375,  # 强度阈值
+                'area_thresh': 5  # 面积阈值
+            },
+            'calcification': {  # 钙化
+                'hu_thresh': 150,  # HU值阈值
+                'hu_scale_factor': 2  # HU值缩放因子
+            },
+            'mm_per_pixel': 0.5  # 关键物理参数
+        }
+
+    def load_config(self, filepath):
+        """从YAML文件加载配置"""
+        try:
+            with open(filepath, 'r', encoding='utf-8-sig') as f:
+                loaded_config = yaml.safe_load(f)
+                self._validate_config(loaded_config)
+                self.config = loaded_config
+            print(f"成功加载配置：{filepath}")
+            return True
+        except Exception as e:
+            print(f"配置加载失败：{str(e)}")
+            return False
+
+    def _validate_config(self, config):
+        """验证配置结构有效性"""
+        required_keys = {
+            'spiculation': ['hough_threshold', 'min_length', 'max_gap'],
+            'lobulation': ['block_size', 'c', 'contour_thresh'],
+            'vacuolation': ['intensity_thresh', 'area_thresh'],
+            'calcification': ['hu_thresh', 'hu_scale_factor'],
+            'mm_per_pixel': None
+        }
+
+        for section, keys in required_keys.items():
+            if section not in config:
+                raise ValueError(f"缺失配置段：{section}")
+            if keys:
+                for key in keys:
+                    if key not in config[section]:
+                        raise ValueError(f"段[{section}]中缺失参数：{key}")
+
+    def analyze(self, roi_image):
+        """输入结节ROI图像和配置字典，返回形态学特征"""
+        # 检查输入图像
+        if roi_image is None or not isinstance(roi_image, np.ndarray):
+            raise ValueError("Invalid input image")
+        parent_path = os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir))
+        self.load_config(os.path.join(parent_path, 'param', 'Morphology.yaml'))
+        config = self.config
+        # 预处理
+        gray = cv2.cvtColor(roi_image, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 50, 150)
+
+        # 特征检测
+        features = {
+            'spiculation': self._detect_spiculation(edges, config['spiculation']),
+            'lobulation': self._detect_lobulation(gray, config['lobulation']),
+            'calcification': self._detect_calcification(gray, config['calcification'], config['mm_per_pixel']),
+            'vacuolation': self._detect_vacuolation(gray, config['vacuolation'], config['mm_per_pixel'])
+        }
+        return features
+
+    def _detect_spiculation(self, edge_map, params):
+        # 多尺度检测实现（参考网页7的放射状特征约束）
+        lines_list = []
+        for scale in params.get('scale_factors', [1.0, 0.75, 0.5]):
+            scaled_img = cv2.resize(edge_map, None, fx=scale, fy=scale)  # 尺度自适应
+            lines = cv2.HoughLinesP(
+                scaled_img,
+                rho=params.get('rho', 1),
+                theta=params.get('theta', np.pi / 180),
+                threshold=params['hough_threshold'],
+                minLineLength=int(params['min_length'] * scale),  # 尺度自适应
+                maxLineGap=params['max_gap']
+            )
+            if lines is not None:
+                lines_list.extend(lines * (1 / scale))  # 坐标还原
+        # 角度过滤（放射状特征约束）
+        valid_lines = []
+        for line in lines_list:
+            x1, y1, x2, y2 = line[0]
+            angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+            if params.get('angle_range', [15, 75])[0] < abs(angle) < params.get('angle_range', [15, 75])[1]:
+                valid_lines.append(line)
+
+        return len(valid_lines)
+
+    def _detect_lobulation(self, gray_img, params):
+        contours, _ = cv2.findContours(gray_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return 0
+        main_contour = max(contours, key=cv2.contourArea)
+        # 曲率计算
+        curvature = []
+        for i in range(len(main_contour)):
+            dx = np.gradient(main_contour[:, 0, 0])
+            dy = np.gradient(main_contour[:, 0, 1])
+            ddx = np.gradient(dx)
+            ddy = np.gradient(dy)
+            curvature_val = np.abs(ddx * dy - dx * ddy) / (dx ** 2 + dy ** 2) ** 1.5
+            curvature.append(curvature_val)
+
+        # 动态确定分叶数（曲率峰值检测）
+        peaks = np.where(curvature > params.get('min_curvature', 0.25))[0]
+        return len(peaks)
+
+    def _detect_vacuolation(self, gray_img, params, mm_per_pixel):
+        # 结合患者平均HU值调整阈值
+        if self.avg_HU is None:
+            raise ValueError("缺失患者平均HU值")
+        # 3D形态学滤波（网页4的3D洞填充思想）
+        mask = cv2.inRange(gray_img, self.avg_HU - 50, self.avg_HU + 100)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        cleaned = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)  # 添加实际使用
+        contours, _ = cv2.findContours(cleaned, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)  # 使用处理后的图像
+
+        # 体积计算（网页4的3D分析思想）
+        voxel_volume = (mm_per_pixel ** 2) * params.get('slice_thickness', 1.0)
+        valid_contours = [c for c in contours if cv2.contourArea(c) * voxel_volume > params['min_volume']]
+        return len(valid_contours)
+
+    def calibrate_hu(self, ct_image):
+        """实现网页10的HU动态校准"""
+        if not self.dicom_metadata.get('rescale_slope'):
+            raise ValueError("缺失DICOM元数据RescaleSlope/Intercept")
+        return ct_image * self.dicom_metadata['rescale_slope'] + self.dicom_metadata['rescale_intercept']
+
+    def safe_find_contours(self, image, mode, method):
+        # 兼容OpenCV 2.x/3.x/4.x（网页5）
+        if cv2.__version__.startswith('2'):
+            _, contours, _ = cv2.findContours(image, mode, method)
+        else:
+            contours, _ = cv2.findContours(image, mode, method)
+        return contours
+
+    def _detect_calcification(self, gray_img, params, mm_per_pixel):
+        # HU校准
+        hu_image = self.calibrate_hu(gray_img)
+
+        # 形态学预处理
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        morph_img = cv2.morphologyEx(gray_img, cv2.MORPH_OPEN, kernel)
+
+        # 轮廓检测（网页5）
+        contours = self.safe_find_contours(
+            morph_img,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+        if not contours:
+            return 0
+
+        # 形态学特征过滤
+        valid_contours = []
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            circularity = 4 * np.pi * area / (cv2.arcLength(cnt, True) ** 2)
+            if circularity > 0.7 and area > params['min_speckle']:
+                valid_contours.append(cnt)
+
+        # 多期相分析（需提前加载enhancement_data）
+        if self.enhancement_data is not None:
+            final_contours = []
+            for cnt in valid_contours:
+                # 创建轮廓掩膜
+                mask = np.zeros_like(gray_img)
+                # cv2.drawContours(mask, [cnt], -1, 255, -1)
+                # 计算HU差异均值
+                delta_hu = np.mean(np.abs(hu_image[mask == 255] - self.enhancement_data[mask == 255]))
+                if delta_hu < params['enhancement_thresh']:
+                    final_contours.append(cnt)
+            valid_contours = final_contours
+
+        return len(valid_contours) * (mm_per_pixel ** 2)

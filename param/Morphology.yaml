@@ -1,15 +1,30 @@
-calcification:                #钙化
-  hu_thresh: 400              # HU值阈值
-  hu_scale_factor: 1          # HU值缩放因子
-lobulation:                   #分叶
-  block_size: 11              # 自适应阈值块大小
-  c: 2                        # 自适应阈值常数
-  contour_thresh: 0.03               # 轮廓近似阈值
-spiculation:                  #毛刺
-  max_gap: 5                  #最大线段间隙
-  min_length: 20                 #最小线段长度
-  hough_threshold: 50         # 霍夫变换阈值
-vacuolation:                  #空泡征
-  intensity_thresh: 21.09375  # 强度阈值
-  area_thresh: 5              # 面积阈值
-mm_per_pixel: 0.5           # 像素与毫米的比例
+##calcification:                #钙化
+##  hu_thresh: 400              # HU值阈值
+##  hu_scale_factor: 1          # HU值缩放因子
+#lobulation:                   #分叶
+#  block_size: 11              # 自适应阈值块大小
+#  c: 2                        # 自适应阈值常数
+#  contour_thresh: 0.03               # 轮廓近似阈值
+#spiculation:                  #毛刺
+#  max_gap: 5                  #最大线段间隙
+#  min_length: 20                 #最小线段长度
+#  hough_threshold: 50         # 霍夫变换阈值
+#vacuolation:                  #空泡征
+#  intensity_thresh: 21.09375  # 强度阈值
+#  area_thresh: 5              # 面积阈值
+#mm_per_pixel: 0.5           # 像素与毫米的比例
+# 物理参数校准
+mm_per_pixel: 0.5
+slice_thickness: 1.0 # CT层厚
+
+# 动态参数调整规则
+adaptive_rules:
+  spiculation:
+    angle_range: [15,75] # 根据结节位置自动调整
+    scale_factors:
+      small_nodule: [1.0, 0.5]
+      large_nodule: [0.75, 0.3]
+  calcification:
+    min_speckle: 0.785   # 直径1mm钙化点面积(0.5mm/pixel)
+    enhancement_thresh: 10
+    morph_kernel: 3      # 3x3结构元素
