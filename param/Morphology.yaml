@@ -17,29 +17,23 @@
 
 # Morphology.yaml
 spiculation:
-  hough_threshold: 50
-  min_length: 20       # 单位：像素
-  max_gap: 5
-  scale_factors: [1.0, 0.75, 0.5]  # 多尺度检测参数[1,7](@ref)
-  angle_range: [15, 75]            # 放射状角度约束[1](@ref)
+  hough_threshold: 30
+  min_length: 10       # 单位：像素
+  max_gap: 3
 
 lobulation:
   block_size: 11
   c: 2
-  contour_thresh: 0.03
-  min_curvature: 0.25             # 轮廓波动阈值[1](@ref)
-  depth_ratio_threshold: 0.4      # 深分叶判定标准[1](@ref)
-  epsilon_ratio: 0.02-0.04        # 动态近似系数[1](@ref)
+  contour_thresh: 0.3
 
 vacuolation:
-  intensity_thresh: -700         # HU值下限[1](@ref)
-  area_thresh: 5
-  max_diameter: 5.0               # 单位：mm[1](@ref)
-  min_volume: 3.14                # 单位：mm³[1](@ref)
-  dynamic_range: 50               # HU动态校准范围[1](@ref)
+  min_r: 0.5
+  max_r: 5
+  circularity: 5.0
+  contrast_thresh: 3.14
 
 calcification:
-  hu_thresh: 150
+  hu_thresh: 450
   hu_scale_factor: 2
   min_speckle: 0.785              # 单位：mm²[1](@ref)
   circularity_threshold: 0.7      # 圆形度标准[1,7](@ref)

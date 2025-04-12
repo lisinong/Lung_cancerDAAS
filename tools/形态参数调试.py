@@ -26,8 +26,12 @@ class MorphologyAnalyzer:
                             'scale_factors': [1.0, 0.75, 0.5],  # 多尺度检测参数[1,7](@ref)
                             'angle_range': [15, 75]  # 放射状角度约束[1](@ref)}
                             },
-            'lobulation': {'epsilon': 0.03, 'block': 11, 'c': 2},
-            'vacuole': {'min_r': 5, 'circularity': 5},
+            'lobulation': {'epsilon': 0.3, 'block': 11, 'c': 2},
+            'vacuole': {'min_r': 0.95,  # 空泡直径下限1mm（网页8定义<5mm）
+                        'max_r': 2,  # 直径上限5mm（网页8关键诊断标准）
+                        'circularity': 18,  # 降低圆形度要求（允许卵圆形/不规则）
+                        'contrast_thresh': 0.3  # 新增对比度阈值（排除血管干扰）
+                        },
             'calcification': {'hu_thresh': 150}
         }
 
@@ -62,7 +66,7 @@ class MorphologyAnalyzer:
         self._create_vacuole_tab(notebook)  # 空泡参数
         self._create_calcification_tab(notebook)  # 钙化参数
 
-    def _create_slider(self, parent, label, param_key, category, range_vals, value_type='single', scale=1.0):
+    def _create_slider(self, parent, label, param_key, category, range_vals, value_type='single', scale=1):
         """增强型参数滑动条组件"""
         frame = ttk.Frame(parent)
         frame.pack(fill=tk.X, padx=5, pady=2, expand=True)
@@ -106,6 +110,7 @@ class MorphologyAnalyzer:
                 to=range_vals[1],
                 value=val,
                 orient=tk.HORIZONTAL,
+
                 command=lambda v, pk=param_key, idx=i: self._update_param_value(v, pk, category, idx, scale,
                                                                                 value_label)
             )
@@ -141,6 +146,7 @@ class MorphologyAnalyzer:
 
         # 触发实时更新
         self.update_image()
+        self.root.update_idletasks()  # 强制刷新GUI
 
     def _create_spiculation_tab(self, notebook):
         """毛刺参数标签页优化"""
@@ -148,46 +154,41 @@ class MorphologyAnalyzer:
 
         # 阈值参数
         self._create_slider(tab, 'Hough阈值', 'hough_threshold', 'spiculation',
-                            (10, 100), scale=1.0)
+                            (0, 100), scale=1.0)
 
         # 长度参数（带单位提示）
         length_frame = self._create_slider(tab, '最小长度(px)', 'min_length', 'spiculation',
-                                           (5, 50), scale=1.0)
+                                           (0, 100), scale=1.0)
         ttk.Label(length_frame, text="5-50px").pack(side=tk.RIGHT, padx=5)
 
         # 角度范围（双滑动条）
         angle_frame = self._create_slider(tab, '角度范围(度)', 'angle_range', 'spiculation',
-                                          (0, 90), value_type='range', scale=1.0)
-        ttk.Label(angle_frame, text="15°-75°").pack(side=tk.RIGHT, padx=5)
+                                          (0, 100), value_type='range', scale=1.0)
+        ttk.Label(angle_frame, text="0°-100°").pack(side=tk.RIGHT, padx=5)
 
         # 多尺度因子（动态添加按钮）
         scale_frame = ttk.Frame(tab)
         scale_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(scale_frame, text="+", width=3,
-                   command=lambda: self._add_scale_factor()).pack(side=tk.RIGHT, padx=5)
         self._create_slider(scale_frame, '尺度因子', 'scale_factors', 'spiculation',
-                            (0.1, 2.0), scale=1.0)
+                            (0.1, 10.0), scale=1.0)
 
         notebook.add(tab, text='毛刺参数')
-
-    def _add_scale_factor(self):
-        """动态添加尺度因子"""
-        if len(self.config['spiculation']['scale_factors']) < 5:  # 最大允许5个尺度
-            self.config['spiculation']['scale_factors'].append(1.0)
 
     def _create_lobulation_tab(self, notebook):
         """分叶参数标签页"""
         tab = ttk.Frame(notebook)
-        self._create_slider(tab, '轮廓精度', 'epsilon', 'lobulation', (1, 100), scale=100)
-        self._create_slider(tab, '块大小', 'block', 'lobulation', (3, 255))
-        self._create_slider(tab, 'C值', 'c', 'lobulation', (1, 50))
+        self._create_slider(tab, '轮廓精度', 'epsilon', 'lobulation', (0, 100), scale=10)
+        self._create_slider(tab, '块大小', 'block', 'lobulation', (1, 255))
+        self._create_slider(tab, 'C值', 'c', 'lobulation', (1, 100))
         notebook.add(tab, text='分叶参数')
 
     def _create_vacuole_tab(self, notebook):
         """空泡参数标签页"""
         tab = ttk.Frame(notebook)
-        self._create_slider(tab, '最小半径', 'min_r', 'vacuole', (1, 50))
-        self._create_slider(tab, '圆形度', 'circularity', 'vacuole', (0, 100))
+        self._create_slider(tab, '最小半径', 'min_r', 'vacuole', (0, 50))
+        self._create_slider(tab, '最大半径', 'max_r', 'vacuole', (0, 50))
+        self._create_slider(tab, '对比度阈值', 'contrast_thresh', 'vacuole', (0, 1), scale=1)
+        self._create_slider(tab, '圆形度', 'circularity', 'vacuole', (0, 100), scale=1)
         notebook.add(tab, text='空泡参数')
 
     def _create_calcification_tab(self, notebook):
@@ -198,42 +199,39 @@ class MorphologyAnalyzer:
 
     def update_image(self):
         """更新显示图像"""
-        try:
-            # 创建显示用图像的安全副本
-            if self.original is None or self.original.size == 0:
-                raise ValueError("原始图像数据异常")
-
-            if len(self.original.shape) == 3:
-                # 如果original是3通道，转换为灰度
-                gray = cv2.cvtColor(self.original, cv2.COLOR_BGR2GRAY)
-            else:
-                gray = self.original.copy()
-            display = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-            display = self._detect_spiculation(display)
-            self._update_canvas(display)
-
-        except Exception as e:
-            print(f"图像更新失败: {str(e)}")
-            traceback.print_exc()
-        # display = self.original.copy()
+        # try:
+        #     # 创建显示用图像的安全副本
+        #     if self.original is None or self.original.size == 0:
+        #         raise ValueError("原始图像数据异常")
         #
-        # # 执行所有特征检测
+        #     if len(self.original.shape) == 3:
+        #         # 如果original是3通道，转换为灰度
+        #         gray = cv2.cvtColor(self.original, cv2.COLOR_BGR2GRAY)
+        #     else:
+        #         gray = self.original.copy()
+        #     display = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        #     display = self._detect_spiculation(display)
+        #     if display is not None:
+        #         self._update_canvas(display)
+        #     else:
+        #         print("处理后的图像为空")
+        #
+        # except Exception as e:
+        #     print(f"图像更新失败: {str(e)}")
+        #     traceback.print_exc()
+        display = self.original.copy()
+
+        # 执行所有特征检测
         # self._detect_spiculation(display)  # 毛刺（红色）
         # self._detect_lobulation(display)  # 分叶（绿色）
-        # self._detect_vacuole(display)  # 空泡（黄色）
+        display = self._detect_vacuole(display)  # 空泡（黄色）
         # self._detect_calcification(display)  # 钙化（蓝色）
 
         # 更新显示
-        # self._update_canvas(display)
+        self._update_canvas(display)
 
     def _detect_spiculation(self, img):
-        """
-           基于多尺度Hough变换的毛刺检测
-           :param image: 输入图像(灰度图)
-           :param config: 形态学参数字典
-           :param center_point: 病灶中心坐标(tuple)
-           :return: 检测线段列表[[x1,y1,x2,y2],...]
-           """
+        """基于多尺度Hough变换的毛刺检测 """
         # 参数初始化
         params = {
             'hough_threshold': self.config['spiculation']['hough_threshold'],
@@ -263,11 +261,22 @@ class MorphologyAnalyzer:
 
         # 添加CLAHE增强对比度
         clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+
+        def polar_filter(img):
+            center = (img.shape[1] // 2, img.shape[0] // 2)
+            polar = cv2.linearPolar(img, center, maxRadius=200, flags=cv2.WARP_FILL_OUTLIERS)
+            kernel = np.array([[-1, 2, -1]] * 3, dtype=np.float32)  # 垂直线增强模板
+            filtered = cv2.filter2D(polar, -1, kernel)
+            return cv2.linearPolar(filtered, center, maxRadius=200, flags=cv2.WARP_INVERSE_MAP)
+
         enhanced = clahe.apply(gray)
+        enhanced = polar_filter(enhanced)  # 新增极坐标滤波
 
-        # 使用Canny边缘检测优化线段检测
-        edges = cv2.Canny(enhanced, 50, 150, apertureSize=3)
-
+        median = np.median(enhanced)
+        sigma = 0.33
+        lower = int(max(0, (1.0 - sigma) * median))
+        upper = int(min(255, (1.0 + sigma) * median))
+        edges = cv2.Canny(enhanced, lower, upper)
         all_lines = []
 
         # 多尺度检测
@@ -288,8 +297,6 @@ class MorphologyAnalyzer:
                 minLineLength=int(params['min_length'] * scale),  # 尺度自适应长度阈值
                 maxLineGap=int(params['max_gap'])
             )
-
-            # 坐标还原
             # 坐标还原（添加边界保护）
             if lines is not None:
                 lines = lines.reshape(-1, 4).clip(min=0) / scale
@@ -311,26 +318,37 @@ class MorphologyAnalyzer:
             return valid_lines
 
         filtered = _angle_filter(all_lines)
-        # # 在显示图像上绘制结果（确保显示图像是BGR格式）
-        # for x1, y1, x2, y2 in filtered:
-        #     cv2.line(img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 1)
-
         # 后处理：合并重叠线段
         # 线段合并使用原始灰度图像
         lsd = cv2.createLineSegmentDetector()
         if processing_img.size == 0 or processing_img.dtype != np.uint8:
             raise ValueError(f"无效的输入图像格式: shape={processing_img.shape}, dtype={processing_img.dtype}")
 
-        lines, _, _, _ = lsd.detect(processing_img)
+        lsd_lines, _, _, _ = lsd.detect(edges)
+        # 合并结果：Hough线段 + LSD线段
+        merged_lines = []
+        if filtered:  # 当filtered非空时加入
+            merged_lines.extend(filtered)
+        if lsd_lines is not None:
+            merged_lines.extend([line[0].tolist() for line in lsd_lines])  # 确保转换为列表
 
         # 绘制合并后的线段到显示图像
-        if lines is not None:
-            for line in lines:
-                x1, y1, x2, y2 = line[0]
-                cv2.line(display_img, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 1)
+        for line in merged_lines:
+            x1, y1, x2, y2 = map(int, line)
+            color = (255, 0, 0) if line in filtered else (0, 255, 0)
+            if line in filtered and line in lsd_lines:
+                color = (0, 0, 255)  # 重叠部分红色高亮
+            cv2.line(display_img, (x1, y1), (x2, y2), color, 2)
 
-                # 更新显示图像
-        self._update_canvas(display_img)
+        print(f"[DEBUG] 检测到初始线段数: {len(all_lines)}")
+        print(f"[DEBUG] 过滤后线段数: {len(filtered)}")
+        print(f"[DEBUG] 合并后线段数: {len(merged_lines) if merged_lines is not None else 0}")
+
+        def calc_spiculation_index(lines, img_area):
+            total_length = sum(np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) for line in lines)
+            return round(total_length / img_area * 1e4, 2)  # 转换为0.01mm/px²
+
+        print(f"[量化] 毛刺指数: {calc_spiculation_index(merged_lines, img.size)}")
         return display_img
 
     def _detect_lobulation(self, img):
@@ -353,25 +371,82 @@ class MorphologyAnalyzer:
             epsilon = params['epsilon'] * cv2.arcLength(main_contour, True)
             approx = cv2.approxPolyDP(main_contour, epsilon, True)
             cv2.drawContours(img, [approx], -1, (0, 255, 0), 1)
+            # 计算分叶指数
+            lobulation_index = cv2.contourArea(approx) / cv2.contourArea(main_contour)
+            print(f"[DEBUG] 分叶指数: {lobulation_index:.2f}")
+            print(f"[DEBUG] 近似轮廓点数: {len(approx)}")
 
     def _detect_vacuole(self, img):
         """空泡检测（黄色圆圈）"""
         # 确保参数为整数
         params = {
-            'min_r': int(self.config['vacuole']['min_r']),
-            'circularity': int(self.config['vacuole']['circularity'])
+            'min_r': int(self.config['vacuole']['min_r']),  # 空泡直径下限1mm
+            'max_r': int(self.config['vacuole']['max_r']),  # 直径上限5mm
+            'circularity': int(self.config['vacuole']['circularity']),  # 降低圆形度要求（允许卵圆形/不规则）
+            'contrast_thresh': int(self.config['vacuole']['contrast_thresh'])  # 新增对比度阈值（排除血管干扰）
         }
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.medianBlur(gray, 5)
-        circles = cv2.HoughCircles(blurred, cv2.HOUGH_GRADIENT, 1, 20,
-                                   param1=50,
-                                   param2=params['circularity'],
-                                   minRadius=params['min_r'],
-                                   maxRadius=50)
+        # 确保输入图像为灰度图像
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+        # 显示用图像单独处理
+        display_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        # 动态阈值二值化
+        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                       cv2.THRESH_BINARY, 11, 2)
+        # # 添加形态学开运算（消除小血管干扰）
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        # # 显示用图像单独处理
+        #图像显示
+        resize = cv2.resize(opened, (800, 600), interpolation=cv2.INTER_AREA)
+        cv2.imshow("Opened Image", resize)
+
+        circles = np.zeros((1, 0, 3), dtype=np.uint16)  # 初始形状 (1, 0, 3)
+        hough_circles = cv2.HoughCircles(
+            opened, cv2.HOUGH_GRADIENT,
+            dp=1.2 if img.shape[1] > 512 else 1.0,  # 高分辨率图像增加dp,  # 提高检测灵敏度
+            minDist=15,  # 防止密集区域重叠
+            param1=30,  # 降低Canny阈值
+            param2=params['circularity'],
+            minRadius=params['min_r'],
+            maxRadius=params['max_r']
+        )
+        if hough_circles is not None:
+            circles = np.concatenate([circles, hough_circles], axis=1)
+        print(f"[DEBUG] HoughCircles检测到圆形数量: {len(circles[0]) if circles is not None else 0}")
+        # 第二阶段：轮廓筛选（排除管状结构）
+        contours, _ = cv2.findContours(opened, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if params['min_r'] ** 2 * 3.14 < area < params['max_r'] ** 2 * 3.14:
+                (x, y), radius = cv2.minEnclosingCircle(cnt)
+                if params['min_r'] < radius < params['max_r']:
+                    circles = np.append(circles if circles is not None else np.empty((0, 1, 3)),
+                                        np.array([[[x, y, radius]]]), axis=1)
+        # 对比度验证
+        for circle in circles[0]:
+            x, y, r = circle
+            roi = gray[int(y - r):int(y + r), int(x - r):int(x + r)]
+            if roi.size == 0:
+                continue
+            contrast = (np.max(roi) - np.min(roi)) / 255.0
+            if contrast < params['contrast_thresh']:
+                continue  # 排除低对比度伪影
         if circles is not None:
             circles = np.uint16(np.around(circles))
             for i in circles[0, :]:
-                cv2.circle(img, (i[0], i[1]), i[2], (255, 255, 0), 1)
+                cv2.circle(display_img, (i[0], i[1]), i[2], (255, 0, 0), 1)
+        print(f"[DEBUG] 检测到空泡数量: {len(circles[0]) if circles is not None else 0}")
+
+        # 计算空泡指数
+        def calc_vacuole_index(circles, img_area):
+            total_area = sum(np.pi * (r ** 2) for _, _, r in circles[0])
+            return round(total_area / img_area * 1e4, 2)
+
+        print(f"[量化] 空泡指数: {calc_vacuole_index(circles, img.size)}")
+        return display_img
 
     def _detect_calcification(self, img):
         """钙化检测（蓝色区域）"""
@@ -385,15 +460,27 @@ class MorphologyAnalyzer:
 
     def _update_canvas(self, img):
         """更新画布显示（改进版）"""
-        # 转换为RGB并调整尺寸
+        # # 转换为RGB并调整尺寸
+        # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # img = Image.fromarray(img)
+        #
+        # # 使用双线性插值进行高质量缩放
+        # img = img.resize((800, 600), Image.Resampling.LANCZOS)
+        #
+        # self.tk_img = ImageTk.PhotoImage(img)
+        # self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_img)
+        # 删除旧图像项
+        self.canvas.delete("all")
+
+        # 转换图像格式
+        # 保持图像引用
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = Image.fromarray(img)
+        self.current_display = ImageTk.PhotoImage(
+            Image.fromarray(img).resize((800, 600), Image.Resampling.LANCZOS)
+        )
 
-        # 使用双线性插值进行高质量缩放
-        img = img.resize((800, 600), Image.Resampling.LANCZOS)
-
-        self.tk_img = ImageTk.PhotoImage(img)
-        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_img)
+        self.canvas.create_image(0, 0, image=self.current_display, anchor=tk.NW)
+        self.canvas.update_idletasks()  # 强制立即重绘
 
     def save_config(self):
         """保存当前配置"""

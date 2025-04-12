@@ -5,7 +5,7 @@ import numpy as np
 import yaml
 
 
-class MorphologyAnalyzerbak:
+class MorphologyAnalyzer:
     def __init__(self):
         # 形态特征阈值配置
         self.config = {
@@ -27,7 +27,7 @@ class MorphologyAnalyzerbak:
                 'hu_thresh': 150,  # HU值阈值
                 'hu_scale_factor': 2  # HU值缩放因子
             },
-            'mm_per_pixel': 0.5  # 关键物理参数
+            'physical_params': {'mm_per_pixel': 0.5}  # 关键物理参数
         }
 
     def load_config(self, filepath):
@@ -50,7 +50,7 @@ class MorphologyAnalyzerbak:
             'lobulation': ['block_size', 'c', 'contour_thresh'],
             'vacuolation': ['intensity_thresh', 'area_thresh'],
             'calcification': ['hu_thresh', 'hu_scale_factor'],
-            'mm_per_pixel': None
+            'physical_params': ['mm_per_pixel']
         }
 
         for section, keys in required_keys.items():
@@ -77,8 +77,10 @@ class MorphologyAnalyzerbak:
         features = {
             'spiculation': self._detect_spiculation(edges, config['spiculation']),
             'lobulation': self._detect_lobulation(gray, config['lobulation']),
-            'calcification': self._detect_calcification(gray, config['calcification'], config['mm_per_pixel']),
-            'vacuolation': self._detect_vacuolation(gray, config['vacuolation'], config['mm_per_pixel'])
+            'calcification': self._detect_calcification(gray, config['calcification'],
+                                                        config['physical_params']['mm_per_pixel']),
+            'vacuolation': self._detect_vacuolation(gray, config['vacuolation'],
+                                                    config['physical_params']['mm_per_pixel'])
         }
         return features
 
@@ -88,10 +90,19 @@ class MorphologyAnalyzerbak:
             edge_map,
             rho=1,
             theta=np.pi / 180,
-            threshold=params.get('hough_threshold', 20),
-            minLineLength=params.get('min_length', 5),
-            maxLineGap=params.get('max_gap', 5)
+            threshold=params.get('hough_threshold', 30),
+            minLineLength=params.get('min_length', 10),
+            maxLineGap=params.get('max_gap', 3)
         )
+        # 线段过滤
+        if lines is not None:
+            filtered_lines = []
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                length = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+                if length > params.get('min_length', 10):
+                    filtered_lines.append(line)
+            lines = filtered_lines
         return len(lines) if lines is not None else 0
 
     def _detect_lobulation(self, gray_img, params):
@@ -138,7 +149,7 @@ class MorphologyAnalyzerbak:
         return calcified_area
 
 
-class MorphologyAnalyzer:
+class MorphologyAnalyzerbak:
     def __init__(self):
         # 形态特征阈值配置
         self.avg_HU = None  # 平均HU值
@@ -219,48 +230,56 @@ class MorphologyAnalyzer:
         return features
 
     def _detect_spiculation(self, edge_map, params):
-        # 多尺度检测实现（参考网页7的放射状特征约束）
+        # 多尺度霍夫变换增强[1,7](@ref)
         lines_list = []
-        for scale in params.get('scale_factors', [1.0, 0.75, 0.5]):
-            scaled_img = cv2.resize(edge_map, None, fx=scale, fy=scale)  # 尺度自适应
+        for scale in params['scale_factors']:
+            scaled_img = cv2.resize(edge_map, None, fx=scale, fy=scale,
+                                    interpolation=cv2.INTER_AREA)
             lines = cv2.HoughLinesP(
                 scaled_img,
-                rho=params.get('rho', 1),
-                theta=params.get('theta', np.pi / 180),
+                rho=1,
+                theta=np.pi / 180,
                 threshold=params['hough_threshold'],
-                minLineLength=int(params['min_length'] * scale),  # 尺度自适应
+                minLineLength=int(params['min_length'] * scale),
                 maxLineGap=params['max_gap']
             )
             if lines is not None:
-                lines_list.extend(lines * (1 / scale))  # 坐标还原
-        # 角度过滤（放射状特征约束）
+                lines_list.extend(lines * (1 / scale))
+
+        # 放射状角度过滤[1](@ref)
         valid_lines = []
+        center = (edge_map.shape[1] // 2, edge_map.shape[0] // 2)
         for line in lines_list:
             x1, y1, x2, y2 = line[0]
-            angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
-            if params.get('angle_range', [15, 75])[0] < abs(angle) < params.get('angle_range', [15, 75])[1]:
+            vec = np.array([x2 - x1, y2 - y1])
+            radial_vec = np.array([x1 - center[0], y1 - center[1]])
+            angle = np.degrees(np.arccos(
+                np.dot(vec, radial_vec) / (np.linalg.norm(vec) * np.linalg.norm(radial_vec) + 1e-5)
+            ))
+            if params['angle_range'][0] < angle < params['angle_range'][1]:
                 valid_lines.append(line)
-
-        return len(valid_lines)
+        return len(valid_lines)  # HU差异阈值[1](@ref)
 
     def _detect_lobulation(self, gray_img, params):
-        contours, _ = cv2.findContours(gray_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            return 0
-        main_contour = max(contours, key=cv2.contourArea)
-        # 曲率计算
-        curvature = []
-        for i in range(len(main_contour)):
-            dx = np.gradient(main_contour[:, 0, 0])
-            dy = np.gradient(main_contour[:, 0, 1])
-            ddx = np.gradient(dx)
-            ddy = np.gradient(dy)
-            curvature_val = np.abs(ddx * dy - dx * ddy) / (dx ** 2 + dy ** 2) ** 1.5
-            curvature.append(curvature_val)
+        # 动态轮廓近似[1](@ref)
+        contour = max(self.safe_find_contours(gray_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE),
+                      key=cv2.contourArea)
+        epsilon = params['epsilon_ratio'] * cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, epsilon, True)
 
-        # 动态确定分叶数（曲率峰值检测）
-        peaks = np.where(curvature > params.get('min_curvature', 0.25))[0]
-        return len(peaks)
+        # 深度比计算[1](@ref)
+        depth_ratios = []
+        for i in range(len(approx)):
+            pt1 = approx[i][0]
+            pt2 = approx[(i + 1) % len(approx)][0]
+            chord = np.linalg.norm(pt2 - pt1)
+            max_dist = 0
+            for pt in contour:
+                dist = (np.abs(np.cross(pt2 - pt1, pt1 - pt[0])) / chord)
+                max_dist = max(max_dist, dist)
+            depth_ratios.append(max_dist / chord)
+
+        return sum(ratio > params['depth_ratio_threshold'] for ratio in depth_ratios)
 
     def _detect_vacuolation(self, gray_img, params, mm_per_pixel):
         # 结合患者平均HU值调整阈值
@@ -272,7 +291,7 @@ class MorphologyAnalyzer:
         cleaned = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)  # 添加实际使用
         contours, _ = cv2.findContours(cleaned, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)  # 使用处理后的图像
 
-        # 体积计算（网页4的3D分析思想）
+        # 体积计算
         voxel_volume = (mm_per_pixel ** 2) * params.get('slice_thickness', 1.0)
         valid_contours = [c for c in contours if cv2.contourArea(c) * voxel_volume > params['min_volume']]
         return len(valid_contours)
