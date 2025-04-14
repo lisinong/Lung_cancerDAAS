@@ -39,8 +39,8 @@ nodules:
   - - .inf
     - 4.0
   morphology:
-    spiculation: 2.0
-    lobulation: 1.5
-    vacuolation: 1.0
-    calcification: 1.0
+    spiculation: 1.0
+    lobulation: 0.5
+    vacuolation: 0.5
+    calcification: 0.5
 high_risk_percent: 85

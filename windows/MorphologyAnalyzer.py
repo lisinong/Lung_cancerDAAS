@@ -2,6 +2,7 @@ import os
 
 import cv2
 import numpy as np
+import pydicom
 import yaml
 
 
@@ -24,8 +25,6 @@ class MorphologyAnalyzer:
                 'area_thresh': 5  # 面积阈值
             },
             'calcification': {  # 钙化
-                'hu_thresh': 150,  # HU值阈值
-                'hu_scale_factor': 2  # HU值缩放因子
             },
             'physical_params': {'mm_per_pixel': 0.5}  # 关键物理参数
         }
@@ -49,7 +48,6 @@ class MorphologyAnalyzer:
             'spiculation': ['hough_threshold', 'min_length', 'max_gap'],
             'lobulation': ['block_size', 'c', 'contour_thresh'],
             'vacuolation': ['intensity_thresh', 'area_thresh'],
-            'calcification': ['hu_thresh', 'hu_scale_factor'],
             'physical_params': ['mm_per_pixel']
         }
 
@@ -61,7 +59,7 @@ class MorphologyAnalyzer:
                     if key not in config[section]:
                         raise ValueError(f"段[{section}]中缺失参数：{key}")
 
-    def analyze(self, roi_image):
+    def analyze(self, roi_image,dicom_data):
         """输入结节ROI图像和配置字典，返回形态学特征"""
         # 检查输入图像
         if roi_image is None or not isinstance(roi_image, np.ndarray):
@@ -77,8 +75,7 @@ class MorphologyAnalyzer:
         features = {
             'spiculation': self._detect_spiculation(edges, config['spiculation']),
             'lobulation': self._detect_lobulation(gray, config['lobulation']),
-            'calcification': self._detect_calcification(gray, config['calcification'],
-                                                        config['physical_params']['mm_per_pixel']),
+            'calcification': self._detect_calcification(gray, dicom_data,config['physical_params']['mm_per_pixel']),
             'vacuolation': self._detect_vacuolation(gray, config['vacuolation'],
                                                     config['physical_params']['mm_per_pixel'])
         }
@@ -141,12 +138,63 @@ class MorphologyAnalyzer:
         valid_contours = [c for c in contours if cv2.contourArea(c) > area_threshold]
         return len(valid_contours)
 
-    def _detect_calcification(self, gray_img, params, mm_per_pixel):
-        """钙化检测（模拟CT值）"""
-        # 模拟HU值转换（假设原始图像已做标准化）
-        pseudo_hu = (gray_img - gray_img.mean()) * params.get('hu_scale_factor', 2)
-        calcified_area = np.sum(pseudo_hu > params.get('hu_thresh', 130)) * (mm_per_pixel ** 2)
-        return calcified_area
+    # def _detect_calcification(self, gray_img, params, mm_per_pixel):
+    #     """钙化检测（模拟CT值）"""
+    #     # 模拟HU值转换（假设原始图像已做标准化）
+    #     pseudo_hu = (gray_img - gray_img.mean()) * params.get('hu_scale_factor', 2)
+    #     calcified_area = np.sum(pseudo_hu > params.get('hu_thresh', 130)) * (mm_per_pixel ** 2)
+    #     return calcified_area
+    def _detect_calcification(self, gray_img, dicom_data,mm_per_pixel):
+        """智能钙化检测（支持DICOM原始数据或预处理CT图像）"""
+        # 类型检测分支
+        if dicom_data is not None:  # 原始DICOM文件
+            # 从DICOM提取HU值
+            hu = dicom_data.pixel_array.astype(np.int16)
+            hu = hu * int(dicom_data.RescaleSlope) + int(dicom_data.RescaleIntercept)
+
+            # HU值归一化到0-255范围（基于预设窗宽）
+            window_center = int(dicom_data.WindowCenter)  # 典型值400
+            window_width = int(dicom_data.WindowWidth)  # 典型值1000
+            hu = np.clip(hu, window_center - window_width // 2, window_center + window_width // 2)
+            hu = cv2.normalize(hu, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            gray = cv2.cvtColor(hu, cv2.COLOR_GRAY2BGR) if len(hu.shape) == 2 else hu
+
+        else:  # 预处理过的CT图像
+            # 转换为灰度图并计算HU统计量
+            gray = cv2.cvtColor(gray_img, cv2.COLOR_BGR2GRAY) if len(gray_img.shape) == 3 else gray_img
+            mean_hu = np.mean(gray)
+            std_hu = np.std(gray)
+            max_hu = np.max(gray)
+
+        # 公共处理流程
+        def _common_processing(gray_img):
+            # 动态阈值计算（DICOM模式使用绝对值阈值）
+            if dicom_data is not None:
+                hu_thresh = 200  # DICOM模式下直接使用200HU绝对值
+            else:
+                hu_thresh = max(200, min(max_hu, mean_hu + 3 * std_hu))
+
+            # 二值化与形态学处理
+            _, mask = cv2.threshold(gray_img, hu_thresh, 255, cv2.THRESH_BINARY)
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+            # 连通域过滤
+            num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
+            if num_labels >= 1:
+                areas = stats[1:, cv2.CC_STAT_AREA]
+                min_area = max(5, int(np.mean(areas))) if len(areas) > 0 else 5
+                for label in range(1, num_labels):
+                    if stats[label, cv2.CC_STAT_AREA] < min_area:
+                        mask[labels == label] = 0
+            return mask
+
+        # 执行通用处理
+        mask = _common_processing(gray)
+
+        #计算钙化面积
+        return np.sum(mask == 255) * (mm_per_pixel ** 2)
 
 
 class MorphologyAnalyzerbak:

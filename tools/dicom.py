@@ -2,6 +2,7 @@ import pydicom
 from pydicom.dataset import Dataset, FileDataset
 import numpy as np
 from datetime import datetime
+from pydicom import uid
 
 
 def add_nodules(base_hu, nodule_count=3, size_range=(5, 10), hu_range=(-400, 600)):
@@ -32,9 +33,9 @@ def add_nodules(base_hu, nodule_count=3, size_range=(5, 10), hu_range=(-400, 600
 def create_dynamic_matrix(matrix_size=256):
     # 生成肺实质模拟背景（中心区域HU=-950，外周逐渐降低）
     mask = np.zeros((matrix_size, matrix_size))
-    y, x = np.ogrid[-matrix_size//2:matrix_size//2, -matrix_size//2:matrix_size//2]
-    mask = x**2 + y**2 <= (matrix_size//3)**2  # 中心圆形区域
-    base_hu = np.where(mask, -950, -1000)     # 肺实质HU=-950，背景空气HU=-1000
+    y, x = np.ogrid[-matrix_size // 2:matrix_size // 2, -matrix_size // 2:matrix_size // 2]
+    mask = x ** 2 + y ** 2 <= (matrix_size // 3) ** 2  # 中心圆形区域
+    base_hu = np.where(mask, -950, -1000)  # 肺实质HU=-950，背景空气HU=-1000
     return base_hu.astype(np.int16)
 
 
@@ -46,7 +47,7 @@ def auto_window_settings(hu_values):
     return round(center), round(width)
 
 
-def create_sample_dcm(output_path, matrix_size=256, nodule_count=3):
+def create_sample_dcm(output_path, matrix_size=256, nodule_count=5):
     """创建包含多结节的DICOM文件"""
     # 创建基础数据集
     file_meta = Dataset()

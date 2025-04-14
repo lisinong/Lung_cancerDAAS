@@ -26,6 +26,7 @@ from ui_form import Ui_MainWindow
 class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.dicomdata = None
         self.load_config = None
         self._export_available = False
         self._detect_available = False
@@ -128,6 +129,7 @@ class MainWindow(QMainWindow):
             # 保存患者信息
             self.patient_info = dialog.get_patient_info()
             self.current_image_path = dialog.image_path
+            self.dicomdata = dialog.dicom_dataset
             # 显示原始图像
             self.show_image(self.current_image_path)
             self._detect_available = True
@@ -232,7 +234,7 @@ class MainWindow(QMainWindow):
         model = YOLO("models/best.pt")
         model.to('cuda')
         results = model(file_path, conf=0.5)
-        if results[0].boxes is None:
+        if results is None:
             QMessageBox.warning(self, "警告", "未检测到结节，请检查影像质量或模型配置")
             return
         # 显示推理时间
@@ -533,7 +535,7 @@ class MainWindow(QMainWindow):
                         nodule_type = "solid"
                 # ROI特征分析
                 roi = self._crop_roi(cv2.imread(self.current_image_path), (x1, y1, x2, y2))
-                morphology = MorphologyAnalyzer().analyze(roi)
+                morphology = MorphologyAnalyzer().analyze(roi,self.dicomdata)
                 nodules.append({
                     'diameter_mm': diameter,
                     'type': nodule_type,

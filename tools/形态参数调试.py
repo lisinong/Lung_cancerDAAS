@@ -4,20 +4,21 @@ from tkinter import ttk, filedialog
 
 import cv2
 import numpy as np
+import pydicom
 import yaml
 from PIL import Image, ImageTk
 from ultralytics import YOLO
 
 
 class MorphologyAnalyzer:
-    def __init__(self, root, roi_image):
+    def __init__(self, root, roi_image, dicom_image=None):
         self.root = root
         self.root.title("单ROI形态学分析工具")
 
         # 初始化ROI图像
         self.original = roi_image.copy()
         self.processed_image = self.original.copy()
-
+        self.dicom_image = dicom_image
         # 默认参数配置（包含全部四个特征）
         self.config = {
             'spiculation': {'hough_threshold': 50,
@@ -224,8 +225,8 @@ class MorphologyAnalyzer:
         # 执行所有特征检测
         # self._detect_spiculation(display)  # 毛刺（红色）
         # self._detect_lobulation(display)  # 分叶（绿色）
-        display = self._detect_vacuole(display)  # 空泡（黄色）
-        # self._detect_calcification(display)  # 钙化（蓝色）
+        # display = self._detect_vacuole(display)  # 空泡（黄色）
+        display = self._detect_calcification(display)  # 钙化（蓝色）
 
         # 更新显示
         self._update_canvas(display)
@@ -449,14 +450,64 @@ class MorphologyAnalyzer:
         return display_img
 
     def _detect_calcification(self, img):
-        """钙化检测（蓝色区域）"""
-        # 确保参数为整数
-        params = {
-            'hu_thresh': int(self.config['calcification']['hu_thresh'])
-        }
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gray, params['hu_thresh'], 255, cv2.THRESH_BINARY)
-        img[mask == 255] = (255, 0, 0)
+        """智能钙化检测（支持DICOM原始数据或预处理CT图像）"""
+        # 类型检测分支
+        if self.dicom_image is not None:  # 原始DICOM文件
+            # 从DICOM提取HU值
+            hu = self.dicom_image.pixel_array.astype(np.int16)
+            hu = hu * int(self.dicom_image.RescaleSlope) + int(self.dicom_image.RescaleIntercept)
+
+            # HU值归一化到0-255范围（基于预设窗宽）
+            window_center = int(self.dicom_image.WindowCenter)  # 典型值400
+            window_width = int(self.dicom_image.WindowWidth)  # 典型值1000
+            hu = np.clip(hu, window_center - window_width // 2, window_center + window_width // 2)
+            gray = cv2.normalize(hu, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            if len(gray.shape) == 3:
+                gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
+
+        else:  # 预处理过的CT图像
+            # 转换为灰度图并计算HU统计量
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+            mean_hu = np.mean(gray)
+            std_hu = np.std(gray)
+            max_hu = np.max(gray)
+
+        # 公共处理流程
+        def _common_processing(gray_img):
+            # 动态阈值计算（DICOM模式使用绝对值阈值）
+            if self.dicom_image is not None:
+                hu_thresh = 200  # DICOM模式下直接使用200HU绝对值
+            else:
+                hu_thresh = max(200, min(max_hu, mean_hu + 3 * std_hu))
+
+            # 二值化与形态学处理
+            _, mask = cv2.threshold(gray_img, hu_thresh, 255, cv2.THRESH_BINARY)
+            mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY) if len(mask.shape) == 3 else mask
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+            # 连通域过滤
+            num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
+            if num_labels >= 1:
+                areas = stats[1:, cv2.CC_STAT_AREA]
+                min_area = max(5, int(np.mean(areas))) if len(areas) > 0 else 5
+                for label in range(1, num_labels):
+                    if stats[label, cv2.CC_STAT_AREA] < min_area:
+                        mask[labels == label] = 0
+            return mask
+
+        # 执行通用处理
+        mask = _common_processing(gray)
+
+        # 结果可视化（DICOM需要重建彩色图像）
+        if self.dicom_image is not None:
+            output = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        else:
+            output = img.copy()
+        output[mask == 255] = (255, 0, 0)  # 钙化区域标蓝
+
+        return output
 
     def _update_canvas(self, img):
         """更新画布显示（改进版）"""
@@ -524,6 +575,7 @@ if __name__ == "__main__":
             # 加载ROI图像（替换为你的实际路径）
             roi = _crop_roi(cv2.imread("C:\\Users\\22662\\Desktop\\Graduation Project\\UI\\resources\\0005.png"),
                             (x1, y1, x2, y2))
+    dicom_dataset = pydicom.dcmread("C:\\Users\\22662\\Desktop\\Graduation Project\\UI\\tools\\multi_nodule_ct.dcm")
     # 初始化分析器
-    app = MorphologyAnalyzer(root, roi)
+    app = MorphologyAnalyzer(root, roi, dicom_dataset)
     root.mainloop()
