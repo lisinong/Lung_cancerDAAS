@@ -452,60 +452,81 @@ class MorphologyAnalyzer:
     def _detect_calcification(self, img):
         """智能钙化检测（支持DICOM原始数据或预处理CT图像）"""
         # 类型检测分支
-        if self.dicom_image is not None:  # 原始DICOM文件
-            # 从DICOM提取HU值
+        # DICOM处理优化
+
+        if self.dicom_image is not None:
+            # 使用标准肺窗设置（窗宽1500，窗位-600）
             hu = self.dicom_image.pixel_array.astype(np.int16)
             hu = hu * int(self.dicom_image.RescaleSlope) + int(self.dicom_image.RescaleIntercept)
 
-            # HU值归一化到0-255范围（基于预设窗宽）
-            window_center = int(self.dicom_image.WindowCenter)  # 典型值400
-            window_width = int(self.dicom_image.WindowWidth)  # 典型值1000
-            hu = np.clip(hu, window_center - window_width // 2, window_center + window_width // 2)
-            gray = cv2.normalize(hu, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-            if len(gray.shape) == 3:
-                gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
+            # 调整窗宽窗位计算方式
+            window_center = -600  # 肺窗中心
+            window_width = 1500  # 肺窗宽度
+            min_hu = window_center - window_width // 2
+            max_hu = window_center + window_width // 2
+            hu = np.clip(hu, min_hu, max_hu)
 
-        else:  # 预处理过的CT图像
-            # 转换为灰度图并计算HU统计量
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
-            mean_hu = np.mean(gray)
-            std_hu = np.std(gray)
-            max_hu = np.max(gray)
+            # 优化归一化并增强对比度
+            gray = cv2.normalize(hu, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            gray = cv2.equalizeHist(gray)  # 直方图均衡化
+
+        else:
+            # 普通CT图像预处理
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = img.copy()
 
         # 公共处理流程
         def _common_processing(gray_img):
             # 动态阈值计算（DICOM模式使用绝对值阈值）
             if self.dicom_image is not None:
-                hu_thresh = 200  # DICOM模式下直接使用200HU绝对值
+                # DICOM模式下：200HU对应的实际像素值需要重新计算
+                # 原错误：直接使用200作为阈值，未考虑归一化映射
+                window_range = window_width  # 1500（改进后代码中的窗宽）
+                hu_thresh_pixel = int(255 * (200 - (window_center - window_width // 2)) / window_range)
+                hu_thresh = max(50, min(hu_thresh_pixel, 200))  # 安全范围限制
             else:
-                hu_thresh = max(200, min(max_hu, mean_hu + 3 * std_hu))
+                # 普通CT图像：确保阈值与输入图像匹配
+                hu_thresh = 200 if np.max(gray_img) > 200 else np.max(gray_img) * 0.9
 
-            # 二值化与形态学处理
-            _, mask = cv2.threshold(gray_img, hu_thresh, 255, cv2.THRESH_BINARY)
-            mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY) if len(mask.shape) == 3 else mask
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+                # 修复阈值应用（原代码错误使用THRESH_BINARY导致阈值失效）
+            _, mask = cv2.threshold(
+                gray_img,
+                hu_thresh,  # 实际使用的阈值
+                255,
+                cv2.THRESH_BINARY_INV if self.dicom_image else cv2.THRESH_BINARY  # DICOM需要反向阈值
+            )
 
-            # 连通域过滤
-            num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
-            if num_labels >= 1:
-                areas = stats[1:, cv2.CC_STAT_AREA]
-                min_area = max(5, int(np.mean(areas))) if len(areas) > 0 else 5
-                for label in range(1, num_labels):
-                    if stats[label, cv2.CC_STAT_AREA] < min_area:
-                        mask[labels == label] = 0
+            # # 形态学优化
+            # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            # mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+            # 连通域过滤增强
+            contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            resize = cv2.resize(mask, (800, 600), interpolation=cv2.INTER_AREA)
+            cv2.imshow("Binary Image", resize)
+            mask = np.zeros_like(mask)
+            for cnt in contours:
+                area = cv2.contourArea(cnt) / 0.5
+                print(f"[DEBUG] 钙化区域面积: {area:.2f}")
+                if 10 < area < 150:  # 钙化结节典型尺寸
+                    mask[cnt[:, 0, 1], cnt[:, 0, 0]] = 255
+                    cv2.drawContours(mask, [cnt], -1, 255, -1)
             return mask
 
         # 执行通用处理
         mask = _common_processing(gray)
 
-        # 结果可视化（DICOM需要重建彩色图像）
+        # 可视化增强
         if self.dicom_image is not None:
             output = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            output = cv2.applyColorMap(output, cv2.COLORMAP_BONE)  # 骨窗伪彩
         else:
-            output = img.copy()
-        output[mask == 255] = (255, 0, 0)  # 钙化区域标蓝
+            output = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+        # 标记钙化区域（红色更醒目）
+        output[mask == 255] = (0, 0, 255)
 
         return output
 
@@ -577,5 +598,5 @@ if __name__ == "__main__":
                             (x1, y1, x2, y2))
     dicom_dataset = pydicom.dcmread("C:\\Users\\22662\\Desktop\\Graduation Project\\UI\\tools\\multi_nodule_ct.dcm")
     # 初始化分析器
-    app = MorphologyAnalyzer(root, roi, dicom_dataset)
+    app = MorphologyAnalyzer(root, roi)
     root.mainloop()

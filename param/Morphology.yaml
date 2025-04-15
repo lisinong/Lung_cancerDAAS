@@ -33,11 +33,9 @@ vacuolation:
   contrast_thresh: 3.14
 
 calcification:
-  hu_thresh: 450
-  hu_scale_factor: 2
-  min_speckle: 0.785              # 单位：mm²[1](@ref)
-  circularity_threshold: 0.7      # 圆形度标准[1,7](@ref)
-  enhancement_thresh: 10          # 增强CT稳定性阈值[1](@ref)
+  min_area: 10
+  max_area: 150
+
 
 physical_params:
   mm_per_pixel: 0.5               # 空间分辨率[1](@ref)

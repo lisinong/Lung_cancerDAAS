@@ -129,6 +129,7 @@ class PatientInfoDialog(QDialog):
                 self.hu_values = pixel_array * slope + intercept  # 转换为HU值
                 self.mean_hu = np.mean(self.hu_values)  # 存储HU值
                 self.mean_hu_edit.setText(f"{self.mean_hu:.2f}")  # 显示平均HU值
+
                 os.makedirs(self.output_dir, exist_ok=True)
                 self.image_path = self._dicom_to_yolo_image(self.output_dir)  # 存储原始CT数据
 
@@ -141,7 +142,8 @@ class PatientInfoDialog(QDialog):
                                      f"建议检查：\n"
                                      "1. 文件是否完整\n"
                                      "2. PatientAge字段格式是否为'045Y'样式\n"
-                                     "3. 必需字段(PatientName/Sex/Age)是否存在")
+                                     "3. 必需字段(PatientName/Sex/Age)是否存在"
+                                     "4. DICOM文件是否为CT格式")
 
     def _simulate_nodule(self, hu_values, nodule_size=2, hu_value=800):
         """在CT图像中模拟磨玻璃结节"""
