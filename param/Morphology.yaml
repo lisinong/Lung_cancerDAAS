@@ -31,6 +31,8 @@ vacuolation:
   max_r: 5
   circularity: 5.0
   contrast_thresh: 3.14
+  intensity_thresh: 21.09375  # 强度阈值
+  area_thresh: 5  # 面积阈值
 
 calcification:
   min_area: 10

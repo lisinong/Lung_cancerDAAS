@@ -104,6 +104,8 @@ class RiskConfigDialog(QDialog):
         # 基础参数组
         base_group = QGroupBox("基础设置")
         base_layout = QFormLayout()
+        self.conf = QDoubleSpinBox()
+        self.conf.setRange(0, 1.0)
         self.main_weight = QDoubleSpinBox()
         self.main_weight.setRange(0.1, 1.0)
         self.mm_per_pixel = QDoubleSpinBox()
@@ -112,6 +114,7 @@ class RiskConfigDialog(QDialog):
         self.n_status.addItems(["N0", "N1"])
         self.m_status = QComboBox()
         self.m_status.addItems(["M0", "M1a", "M1b"])
+        base_layout.addRow("置信度:", self.conf)
         base_layout.addRow("主结节权重:", self.main_weight)
         base_layout.addRow("像素换算系数(mm/px):", self.mm_per_pixel)
         base_layout.addRow("N状态:", self.n_status)
@@ -235,6 +238,7 @@ class RiskConfigDialog(QDialog):
             self.history_table.setItem(row, 1, QTableWidgetItem(str(score)))
 
         # 结节参数
+        self.conf.setValue(params['conf'])
         self.main_weight.setValue(params['main_weight'])
         self.mm_per_pixel.setValue(params['mm_per_pixel'])
         self.n_status.setCurrentText(params['n_status'])
@@ -275,6 +279,7 @@ class RiskConfigDialog(QDialog):
     def get_params(self):
         """从界面获取参数"""
         params = {
+            'conf':self.conf.value(),
             'main_weight': self.main_weight.value(),
             'mm_per_pixel': self.mm_per_pixel.value(),
             'n_status': self.n_status.currentText(),
@@ -337,7 +342,7 @@ class RiskConfigDialog(QDialog):
     def _validate_config(self, config):
         """验证配置文件的完整性"""
         required_keys = [
-            'main_weight', 'n_status', 'm_status', 'mm_per_pixel',
+            'conf','main_weight', 'n_status', 'm_status', 'mm_per_pixel',
             'thresholds', 'patient', 'nodules'
         ]
         for key in required_keys:

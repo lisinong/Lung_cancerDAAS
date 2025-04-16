@@ -151,8 +151,8 @@ border: 2px solid #3a3a3a;</string>
          <rect>
           <x>10</x>
           <y>110</y>
-          <width>591</width>
-          <height>161</height>
+          <width>581</width>
+          <height>171</height>
          </rect>
         </property>
         <property name="title">
@@ -164,7 +164,7 @@ border: 2px solid #3a3a3a;</string>
            <x>90</x>
            <y>10</y>
            <width>481</width>
-           <height>141</height>
+           <height>151</height>
           </rect>
          </property>
          <property name="styleSheet">
@@ -222,9 +222,9 @@ border: 2px solid #3a3a3a;</string>
         <property name="geometry">
          <rect>
           <x>10</x>
-          <y>270</y>
-          <width>591</width>
-          <height>131</height>
+          <y>290</y>
+          <width>581</width>
+          <height>91</height>
          </rect>
         </property>
         <property name="styleSheet">
@@ -238,7 +238,7 @@ border: 2px solid #3a3a3a;</string>
           <rect>
            <x>10</x>
            <y>30</y>
-           <width>101</width>
+           <width>111</width>
            <height>41</height>
           </rect>
          </property>
@@ -249,25 +249,12 @@ border: 2px solid #3a3a3a;</string>
           <string>风险水平</string>
          </property>
         </widget>
-        <widget class="QLabel" name="riskDetailLabel">
+        <widget class="QProgressBar" name="riskProgressBar">
          <property name="geometry">
           <rect>
            <x>130</x>
            <y>30</y>
-           <width>451</width>
-           <height>41</height>
-          </rect>
-         </property>
-         <property name="text">
-          <string>主结节特征: </string>
-         </property>
-        </widget>
-        <widget class="QProgressBar" name="riskProgressBar">
-         <property name="geometry">
-          <rect>
-           <x>10</x>
-           <y>80</y>
-           <width>571</width>
+           <width>441</width>
            <height>41</height>
           </rect>
          </property>
@@ -295,9 +282,9 @@ border: 2px solid #3a3a3a;</string>
         <property name="geometry">
          <rect>
           <x>10</x>
-          <y>410</y>
-          <width>571</width>
-          <height>171</height>
+          <y>400</y>
+          <width>581</width>
+          <height>181</height>
          </rect>
         </property>
         <property name="title">

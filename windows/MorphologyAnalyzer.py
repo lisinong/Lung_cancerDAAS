@@ -130,7 +130,7 @@ class MorphologyAnalyzer:
         """空泡征检测（基于强度阈值）"""
         _, thresh = cv2.threshold(
             gray_img,
-            params.get('intensity_thresh', 150),
+            float(params.get('intensity_thresh', 150)),
             255,
             cv2.THRESH_BINARY_INV
         )
@@ -190,7 +190,7 @@ class MorphologyAnalyzer:
                 # 修复阈值应用（原代码错误使用THRESH_BINARY导致阈值失效）
             _, mask = cv2.threshold(
                 gray_img,
-                hu_thresh,  # 实际使用的阈值
+                float(hu_thresh),  # 实际使用的阈值
                 255,
                 cv2.THRESH_BINARY_INV if dicom_data else cv2.THRESH_BINARY  # DICOM需要反向阈值
             )

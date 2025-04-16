@@ -1,4 +1,5 @@
-﻿main_weight: 0.7
+﻿conf: 0.3
+main_weight: 0.7
 mm_per_pixel: 0.5
 n_status: N1
 m_status: M0

@@ -3,13 +3,16 @@ import math
 import sys
 
 import cv2
+import torch
 import yaml
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QGraphicsScene, QGraphicsPixmapItem, \
     QTableWidgetItem
-from PySide6.QtGui import QPixmap, QPen, QColor, QIcon
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap, QPen, QColor
+from PySide6.QtCore import Qt, QThread, Slot
 from ultralytics import YOLO
 
+from windows.CircleLoadingAnimation import CircleLoadingAnimation, FrostedGlassWidget
+from windows.DetectionWorker import DetectionWorker
 from windows.PatientInfoDialog import PatientInfoDialog
 from windows.ReportExportDialog import ReportExportDialog
 from windows.RiskConfigDialog import RiskConfigDialog
@@ -26,6 +29,8 @@ from ui_form import Ui_MainWindow
 class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.thread = None
+        self.worker = None
         self.dicomdata = None
         self.load_config = None
         self._export_available = False
@@ -44,6 +49,8 @@ class MainWindow(QMainWindow):
 
         # 初始化医学参数
         self.default_params = {
+            'img_height': 512,  # 假设图像高度为512px
+            'conf': 0.3,  # 检测置信度
             'main_weight': 0.7,
             'n_status': "N0",
             'm_status': "M0",
@@ -63,7 +70,7 @@ class MainWindow(QMainWindow):
                 'size': [(5, 0), (10, 1), (20, 2), (30, 3), (float('inf'), 4)],
                 'type': {'ggo': 1, 'part-solid': 2, 'solid': 3},
                 'location': {'upper': 1, 'middle': 0.5, 'lower': 0},  # 上肺叶风险更高[6](@ref)
-                'morphology': {'spiculation': 2, 'lobulation': 1.5, 'calcification': 1.0, 'vacuolation': 1.0}
+                'morphology': {'spiculation': 1.5, 'lobulation': 1, 'calcification': 0.5, 'vacuolation': 0.5}
             }
         }
         self.current_params = self.default_params.copy()
@@ -84,6 +91,12 @@ class MainWindow(QMainWindow):
         self.patient_info = None  # 存储患者信息
         self._update_ui_state()  # 更新UI状态
 
+        # 预初始化磨砂玻璃层（初始隐藏）
+        self.frost_layer = FrostedGlassWidget(self)
+        self.frost_layer.setGeometry(self.rect())
+        self.frost_layer.hide()
+        self.progress = CircleLoadingAnimation()  # 实例化一个加载动画
+        self.thread = None  # 用于保存当前线程引用
         # 新增按钮
         self.ui.startDetectionBtn.clicked.connect(self.start_detection)
         self.ui.addPatientBtn.clicked.connect(self.show_patient_dialog)
@@ -117,6 +130,7 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             # 获取新参数并验证
             new_params = dialog.get_params()
+            new_params['img_height'] = self.current_params['img_height']
             # 更新参数并刷新UI
             self.current_params = new_params
             self.ui.label.setText(f"单位像素换算系数: {new_params['mm_per_pixel']} mm/pixel")
@@ -129,6 +143,7 @@ class MainWindow(QMainWindow):
             # 保存患者信息
             self.patient_info = dialog.get_patient_info()
             self.current_image_path = dialog.image_path
+            self.current_params['img_height'] = cv2.imread(self.current_image_path).shape[0]
             self.dicomdata = dialog.dicom_dataset
             # 显示原始图像
             self.show_image(self.current_image_path)
@@ -136,19 +151,86 @@ class MainWindow(QMainWindow):
             self._update_ui_state()  # 更新UI状态
             QMessageBox.information(self, "就绪", "患者信息与影像加载完成，可开始检测")
 
+    # def start_detection(self):
+    #     """开始检测按钮的新逻辑"""
+    #     if not self.current_image_path:
+    #         QMessageBox.critical(self, "错误", "尚未加载医学影像！")
+    #         return
+    #     try:
+    #         self.progress.start()
+    #         # 执行原有处理流程
+    #         self.process_image(self.current_image_path)
+    #         self.progress.stop()
+    #         self._export_available = True
+    #         self._update_ui_state()  # 更新UI状态
+    #     except Exception as e:
+    #         QMessageBox.critical(self, "检测失败", f"影像处理错误：{str(e)}")
+    #         self._export_available = False
+    #         self.progress.stop()
     def start_detection(self):
-        """开始检测按钮的新逻辑"""
+        """开始检测按钮的新逻辑（线程安全版本）"""
         if not self.current_image_path:
             QMessageBox.critical(self, "错误", "尚未加载医学影像！")
             return
-        try:
-            # 执行原有处理流程
-            self.process_image(self.current_image_path)
-            self._export_available = True
-            self._update_ui_state()  # 更新UI状态
-        except Exception as e:
-            QMessageBox.critical(self, "检测失败", f"影像处理错误：{str(e)}")
-            self._export_available = False
+
+        # 初始化工作线程
+        self.progress.start()  # 先显示加载动画
+        #主界面全白
+        self.clear()
+        self.frost_layer.show()
+        self.thread = QThread()
+        self.worker = DetectionWorker(self.process_image, self.current_image_path)
+        self.worker.moveToThread(self.thread)
+
+        # 连接信号
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.on_processing_success)
+        self.worker.error.connect(self.on_processing_error)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.error.connect(self.thread.quit)
+        self.thread.finished.connect(self.thread.deleteLater)
+
+        # 启动线程
+        self.thread.start()
+
+    def clear(self):
+        """清除主界面"""
+        self.ui.noduleCountLabel.setText("检测到结节: 0个")
+        self.ui.noduleTable.clearContents()
+        self.ui.noduleTable.setRowCount(0)
+        self.ui.riskLevelLabel.setText("恶性风险: 未检测到结节")
+        # self.ui.riskDetailLabel.setText("特征:无")
+        self.ui.stageLabel.setText("肺癌分期: 无")
+        self.ui.stageDetailLabel.setText("暂无描述")
+
+    @Slot(object, list)
+    def on_processing_success(self, results, nodules):
+        """处理成功时的槽函数"""
+        self.nodules = nodules
+        self.show_detections(results, self.nodules)
+        # 医学分析
+        if self.nodules:
+            self.medical_analysis(self.nodules)
+        else:
+            self.ui.noduleCountLabel.setText("检测到结节: 0个")
+            self.ui.riskLevelLabel.setText("恶性风险: 未检测到结节")
+            # self.ui.riskDetailLabel.setText("特征:无")
+            self.ui.stageLabel.setText("肺癌分期: 无")
+            self.ui.stageDetailLabel.setText("暂无描述")
+        self.progress.stop()
+        #恢复主界面
+        self.frost_layer.hide()
+        self._export_available = True
+        self._update_ui_state()
+
+    def on_processing_error(self, e):
+        """处理失败时的槽函数"""
+        self.progress.stop()
+        self.frost_layer.hide()
+        self.clear()
+        self._export_available = False
+        self._update_ui_state()
+        QMessageBox.critical(self, "检测失败", f"影像处理错误：{str(e)}")
 
     def show_export_dialog(self):
         """生成导出数据并显示导出对话框"""
@@ -210,7 +292,7 @@ class MainWindow(QMainWindow):
             # 标注主结节
             feature_line = []
             if not is_single:
-                prefix = "★主结节 " if nodule == main_nodule else f"结节{i + 1} "
+                prefix = "★主结节 " if nodule == main_nodule else f"结节{nodule['index']} "
                 feature_line.append(prefix)  # 不立即添加换行符
 
             feature_line.extend([
@@ -229,36 +311,27 @@ class MainWindow(QMainWindow):
         return "\n".join(features)
 
     def process_image(self, file_path):
-
         # YOLO模型推理
-        model = YOLO("models/best.pt")
-        model.to('cuda')
-        results = model(file_path, conf=0.5)
-        if results is None:
-            QMessageBox.warning(self, "警告", "未检测到结节，请检查影像质量或模型配置")
-            return
-        # 显示推理时间
-        self.show_inference_time(results)
-
-        # 处理检测结果
-        self.nodules = self.process_detections(results)
-
-        # 显示检测结果
-        self.show_detections(results[0], self.nodules)
-
-        # 医学分析
-        if self.nodules:
-            self.medical_analysis(self.nodules)
-        else:
-            self.ui.riskLevelLabel.setText("恶性风险: 未检测到结节")
-            self.ui.riskDetailLabel.setText("特征:无")
-            self.ui.stageLabel.setText("肺癌分期: 无")
-            self.ui.stageDetailLabel.setText("暂无描述")
+        try:
+            model = YOLO("models/best.pt")
+            model.to('cuda')
+            results = model(file_path, conf=self.current_params['conf'])
+            # 显示推理时间
+            self.show_inference_time(results)
+            return results, self.process_detections(results)
+        finally:
+            # 确保资源释放
+            if 'model' in locals():
+                del model
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+        # if len(results[0].boxes) == 0:
+        #     QMessageBox.warning(self, "检测结果", "未检测到结节")
+        #     return
 
     def medical_analysis(self, nodules):
         # 更新结节数量显示
         self.ui.noduleCountLabel.setText(f"检测到结节: {len(nodules)}个")
-
         # 更新结节特征表格
         self.update_nodule_table(nodules)
 
@@ -266,7 +339,7 @@ class MainWindow(QMainWindow):
         risk_level, percentage, main_nodule_detail_desc = self.assess_malignant_risk(nodules)
 
         self.ui.riskLevelLabel.setText(f"风险水平：{risk_level}")
-        self.ui.riskDetailLabel.setText(f"主结节特征: {main_nodule_detail_desc}")
+        # self.ui.riskDetailLabel.setText(f"主结节特征: {main_nodule_detail_desc}")
         self.update_risk_progress(percentage)  # 风险进度条更新
 
         # TNM分期预测
@@ -396,9 +469,10 @@ class MainWindow(QMainWindow):
 
         # 3. 位置评分优化
         y_pos = nodule['position'][1]
-        if y_pos < 150:  # 上肺叶
+        img_height = self.current_params['img_height']  # 假设图像高度为512px
+        if y_pos < (img_height / 3):  # 上肺叶
             score += location_weights['upper']
-        elif 150 <= y_pos < 300:  # 中肺叶
+        elif (img_height / 3) <= y_pos < (2 * img_height) / 3:  # 中肺叶
             score += location_weights['middle']
         else:  # 下肺叶
             score += location_weights['lower']
@@ -411,7 +485,7 @@ class MainWindow(QMainWindow):
                     score += weight
                     # morphology_weights[feature] += 1
 
-        return min(score, 10)  # 根据LU-RADS调整上限
+        return min(score, 15)  # 根据LU-RADS调整上限
 
     def _generate_advice(self, risk_level, main_nodule):
         """根据NCCN指南生成建议[6](@ref)"""
@@ -513,12 +587,16 @@ class MainWindow(QMainWindow):
     def process_detections(self, results):
         """处理检测结果并提取结节特征"""
         nodules = []
+        nodule_index = 1
         for result in results:
             for box in result.boxes:
                 # 获取检测框信息
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 cls = int(box.cls[0].item())
                 conf = box.conf[0].item()
+                # 过滤低置信度检测
+                if conf < self.current_params['conf']:
+                    continue
                 # 计算实际尺寸
                 width = x2 - x1
                 height = y2 - y1
@@ -535,8 +613,9 @@ class MainWindow(QMainWindow):
                         nodule_type = "solid"
                 # ROI特征分析
                 roi = self._crop_roi(cv2.imread(self.current_image_path), (x1, y1, x2, y2))
-                morphology = MorphologyAnalyzer().analyze(roi,self.dicomdata)
+                morphology = MorphologyAnalyzer().analyze(roi, self.dicomdata)
                 nodules.append({
+                    'index': nodule_index,
                     'diameter_mm': diameter,
                     'type': nodule_type,
                     'confidence': round(conf, 2),
@@ -549,6 +628,8 @@ class MainWindow(QMainWindow):
                     },
                     'roi_shape': roi.shape[:2]  # 用于质量检查
                 })
+                # 结节索引自增
+                nodule_index += 1
         return nodules
 
     def show_image(self, file_path):
@@ -568,7 +649,7 @@ class MainWindow(QMainWindow):
                 f"推理时间: {inference_time:.1f}ms"
             )
 
-    def show_detections(self, result, nodules):
+    def show_detections(self, results, nodules):
         """可视化检测结果"""
         scene = self.ui.graphicsView.scene()
 
@@ -578,23 +659,23 @@ class MainWindow(QMainWindow):
             scene.removeItem(item)
 
         # 绘制新检测结果
-        for box, nodule in zip(result.boxes, nodules):
-            x1, y1, x2, y2 = box.xyxy[0].tolist()
-
-            # 绘制边界框
-            rect = scene.addRect(x1, y1, x2 - x1, y2 - y1)
-            color = QColor(0, 255, 0) if nodule['diameter_mm'] < 30 else QColor(255, 0, 0)
-            rect.setPen(QPen(color, 2))
-            nodule_type_map = {
-                'solid': '实性结节',
-                'part-solid': '部分实性结节',
-                'ggo': '磨玻璃结节'
-            }
-            # 添加标注文本
-            text = f"{nodule_type_map.get(nodule['type'], '未知')} {nodule['diameter_mm']:.1f}mm"
-            text_item = scene.addText(text)
-            text_item.setDefaultTextColor(color)
-            text_item.setPos(x1, y1 - 20)
+        for result in results:
+            for box, nodule in zip(result.boxes, nodules):
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                # 绘制边界框
+                rect = scene.addRect(x1, y1, x2 - x1, y2 - y1)
+                color = QColor(0, 255, 0)
+                rect.setPen(QPen(color, 2))
+                nodule_type_map = {
+                    'solid': '实性结节',
+                    'part-solid': '部分实性结节',
+                    'ggo': '磨玻璃结节'
+                }
+                # 添加标注文本
+                text = f"{nodule_type_map.get(nodule['type'], '未知')} {nodule['diameter_mm']:.1f}mm"
+                text_item = scene.addText(text)
+                text_item.setDefaultTextColor(color)
+                text_item.setPos(x1, y1 - 20)
 
     def update_risk_progress(self, percentage):
         """更新风险进度条"""
@@ -617,15 +698,16 @@ class MainWindow(QMainWindow):
             'part-solid': '部分实性结节',
             'ggo': '磨玻璃结节'
         }
+        sorted_nodules = sorted(nodules, key=lambda n: n['diameter_mm'], reverse=True)
         # 填充数据
-        for i, nodule in enumerate(nodules):
-            self.ui.noduleTable.setItem(i, 0, QTableWidgetItem(str(i + 1)))
+        for i, nodule in enumerate(sorted_nodules):
+            self.ui.noduleTable.setItem(i, 0, QTableWidgetItem(str(nodule['index'])))
             self.ui.noduleTable.setItem(i, 1, QTableWidgetItem(f"{nodule['diameter_mm']:.1f}"))
             self.ui.noduleTable.setItem(i, 2, QTableWidgetItem(nodule_type_map.get(nodule['type'], '其他类型')))
             morphology_desc = []
             if nodule['morphology']['spiculation'] > 0:
                 morphology_desc.append("毛刺")
-            if nodule['morphology']['lobulation'] > 0:
+            if nodule['morphology']['lobulation'] >= 3:
                 morphology_desc.append("分叶")
             if nodule['morphology']['calcification'] > 0:
                 morphology_desc.append("钙化")

@@ -94,7 +94,7 @@ class PatientInfoDialog(QDialog):
             try:
                 # 读取DICOM文件
                 self.DICOM = selected_files[0]
-                dicom_dataset = pydicom.dcmread(self.DICOM)
+                dicom_dataset = pydicom.dcmread(self.DICOM,force=True)
                 self.dicom_dataset = dicom_dataset  # 存储DICOM数据集
                 # --- 字符集处理 ---
                 getattr(dicom_dataset, 'SpecificCharacterSet', 'GB18030')
