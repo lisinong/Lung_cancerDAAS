@@ -21,12 +21,13 @@ class MorphologyAnalyzer:
                 'contour_thresh': 0.03  # 轮廓近似阈值
             },
             'vacuolation': {  # 空泡征
-                'intensity_thresh': 21.09375,  # 强度阈值
-                'area_thresh': 5  # 面积阈值
+                 'min_area': 10,
+                 'max_area': 100  # 空泡面积范围
             },
-            'calcification': {'min_area': 10,
-                              'max_area': 100  # 钙化
-                              },
+            'calcification': {
+                'min_area': 10,
+                'max_area': 100  # 钙化面积范围
+            },
             'physical_params': {'mm_per_pixel': 0.5}  # 关键物理参数
         }
 
@@ -48,7 +49,7 @@ class MorphologyAnalyzer:
         required_keys = {
             'spiculation': ['hough_threshold', 'min_length', 'max_gap'],
             'lobulation': ['block_size', 'c', 'contour_thresh'],
-            'vacuolation': ['intensity_thresh', 'area_thresh'],
+            'vacuolation': ['min_area', 'max_area'],
             'calcification': ['min_area', 'max_area'],
             'physical_params': ['mm_per_pixel']
         }
@@ -79,7 +80,7 @@ class MorphologyAnalyzer:
             'lobulation': self._detect_lobulation(gray, config['lobulation']),
             'calcification': self._detect_calcification(gray, dicom_data, config['calcification'],
                                                         config['physical_params']['mm_per_pixel']),
-            'vacuolation': self._detect_vacuolation(gray, config['vacuolation'],
+            'vacuolation': self._detect_vacuolation(gray, config['vacuolation'],dicom_data,
                                                     config['physical_params']['mm_per_pixel'])
         }
         return features
@@ -126,30 +127,22 @@ class MorphologyAnalyzer:
         approx = cv2.approxPolyDP(main_contour, epsilon, True)
         return len(approx)
 
-    def _detect_vacuolation(self, gray_img, params, mm_per_pixel):
-        """空泡征检测（基于强度阈值）"""
-        _, thresh = cv2.threshold(
-            gray_img,
-            float(params.get('intensity_thresh', 150)),
-            255,
-            cv2.THRESH_BINARY_INV
-        )
+    # def _detect_vacuolation(self, gray_img, params, mm_per_pixel):
+    #     """空泡征检测（基于强度阈值）"""
+    #     _, thresh = cv2.threshold(
+    #         gray_img,
+    #         float(params.get('intensity_thresh', 150)),
+    #         255,
+    #         cv2.THRESH_BINARY_INV
+    #     )
+    #
+    #     # 连通区域分析
+    #     contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    #     area_threshold = params.get('area_thresh', 5) / (mm_per_pixel ** 2)
+    #     valid_contours = [c for c in contours if cv2.contourArea(c) > area_threshold]
+    #     return len(valid_contours)
 
-        # 连通区域分析
-        contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        area_threshold = params.get('area_thresh', 5) / (mm_per_pixel ** 2)
-        valid_contours = [c for c in contours if cv2.contourArea(c) > area_threshold]
-        return len(valid_contours)
-
-    # def _detect_calcification(self, gray_img, params, mm_per_pixel):
-    #     """钙化检测（模拟CT值）"""
-    #     # 模拟HU值转换（假设原始图像已做标准化）
-    #     pseudo_hu = (gray_img - gray_img.mean()) * params.get('hu_scale_factor', 2)
-    #     calcified_area = np.sum(pseudo_hu > params.get('hu_thresh', 130)) * (mm_per_pixel ** 2)
-    #     return calcified_area
-    def _detect_calcification(self, gray_img, dicom_data, params, mm_per_pixel):
-        """智能钙化检测（支持DICOM原始数据或预处理CT图像）"""
-        # 类型检测分支
+    def _handle_dicom(self, img, dicom_data):
         if dicom_data is not None:
             # 使用标准肺窗设置（窗宽1500，窗位-600）
             hu = dicom_data.pixel_array.astype(np.int16)
@@ -168,44 +161,81 @@ class MorphologyAnalyzer:
 
         else:
             # 普通CT图像预处理
-            if len(gray_img.shape) == 3:
-                gray = cv2.cvtColor(gray_img, cv2.COLOR_BGR2GRAY)
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             else:
-                gray = gray_img.copy()
+                gray = img.copy()
+        return gray
 
-        # 公共处理流程
-        def _common_processing(gray_img):
-            # 动态阈值计算（DICOM模式使用绝对值阈值）
-            # 动态阈值计算（DICOM模式使用绝对值阈值）
-            if dicom_data is not None:
-                # DICOM模式下：200HU对应的实际像素值需要重新计算
-                # 原错误：直接使用200作为阈值，未考虑归一化映射
-                window_range = window_width  # 1500（改进后代码中的窗宽）
-                hu_thresh_pixel = int(255 * (200 - (window_center - window_width // 2)) / window_range)
-                hu_thresh = max(50, min(hu_thresh_pixel, 200))  # 安全范围限制
-            else:
-                # 普通CT图像：确保阈值与输入图像匹配
-                hu_thresh = 200 if np.max(gray_img) > 200 else np.max(gray_img) * 0.9
+    def _detect_vacuolation(self, img, params, dicom_data, mm_per_pixel):
+        """空泡检测"""
+        gray = self._handle_dicom(img, dicom_data)
+        """空泡征检测（基于强度阈值）"""
+        # 1. 预处理：高斯去噪
+        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+        # 2. 动态阈值分割（Otsu + 密度范围过滤）
+        _, otsu_thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        # 3. 形态学优化：去除小噪点
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        cleaned = cv2.morphologyEx(gray, cv2.MORPH_OPEN, kernel)
+        # 4. 连通区域分析 + 形态筛选
+        contours, _ = cv2.findContours(cleaned, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        min_area = params.get('min_area', 1) / mm_per_pixel  # 直径≤5mm对应面积阈值
+        max_area = params.get('max_area', 3) / mm_per_pixel  # 直径≥10mm对应面积阈值
+        valid_contours = []
 
-                # 修复阈值应用（原代码错误使用THRESH_BINARY导致阈值失效）
-            _, mask = cv2.threshold(
-                gray_img,
-                float(hu_thresh),  # 实际使用的阈值
-                255,
-                cv2.THRESH_BINARY_INV if dicom_data else cv2.THRESH_BINARY  # DICOM需要反向阈值
-            )
+        for c in contours:
+            area = cv2.contourArea(c)
+            print(f"[DEBUG] 空泡区域面积: {area:.2f}")
+            if area < min_area or area > max_area:  # 空泡直径范围
+                continue
 
-            # 连通域过滤增强
-            contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-            sum_area = 0
-            for cnt in contours:
-                area = cv2.contourArea(cnt) / mm_per_pixel
-                if params.get('min_area', 10) < area < params.get('max_area', 100):  # 钙化结节典型尺寸
-                    sum_area += 1
-            return sum_area
+            # 形态学筛选（圆形度、长宽比）
+            (x, y), (w, h), angle = cv2.minAreaRect(c)
+            aspect_ratio = max(w, h) / min(w, h) if min(w, h) > 0 else 0
+            perimeter = cv2.arcLength(c, True)
+            circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
 
-        # 执行通用处理
-        return _common_processing(gray)
+            if circularity > 0.7 and aspect_ratio < 1.5:
+                valid_contours.append(c)
+        return len(valid_contours)
 
+    # def _detect_calcification(self, gray_img, params, mm_per_pixel):
+    #     """钙化检测（模拟CT值）"""
+    #     # 模拟HU值转换（假设原始图像已做标准化）
+    #     pseudo_hu = (gray_img - gray_img.mean()) * params.get('hu_scale_factor', 2)
+    #     calcified_area = np.sum(pseudo_hu > params.get('hu_thresh', 130)) * (mm_per_pixel ** 2)
+    #     return calcified_area
+    def _detect_calcification(self, gray_img, dicom_data, params, mm_per_pixel):
+        """智能钙化检测（支持DICOM原始数据或预处理CT图像）"""
+        # 类型检测分支
+        gray_img = self._handle_dicom(gray_img, dicom_data)
+        if dicom_data is not None:
+            # DICOM模式下：200HU对应的实际像素值需要重新计算
+            # 调整窗宽窗位计算方式
+            window_center = -600  # 肺窗中心
+            window_width = 1500  # 肺窗宽度
+            window_range = window_width  # 1500（改进后代码中的窗宽）
+            hu_thresh_pixel = int(255 * (200 - (window_center - window_width // 2)) / window_range)
+            hu_thresh = max(50, min(hu_thresh_pixel, 200))  # 安全范围限制
+        else:
+            # 普通CT图像：确保阈值与输入图像匹配
+            hu_thresh = 200 if np.max(gray_img) > 200 else np.max(gray_img) * 0.9
+
+        # 修复阈值应用
+        _, mask = cv2.threshold(
+            gray_img,
+            float(hu_thresh),  # 实际使用的阈值
+            255,
+            cv2.THRESH_BINARY_INV if dicom_data else cv2.THRESH_BINARY  # DICOM需要反向阈值
+        )
+
+        # 连通域过滤增强
+        contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        sum_area = 0
+        for cnt in contours:
+            area = cv2.contourArea(cnt) / mm_per_pixel
+            if params.get('min_area', 10) < area < params.get('max_area', 100):  # 钙化结节典型尺寸
+                sum_area += 1
+        return sum_area
         # #计算钙化面积
-        # return np.sum(mask == 255) * (mm_per_pixel ** 2)

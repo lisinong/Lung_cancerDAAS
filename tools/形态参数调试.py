@@ -224,9 +224,9 @@ class MorphologyAnalyzer:
 
         # 执行所有特征检测
         # self._detect_spiculation(display)  # 毛刺（红色）
-        # self._detect_lobulation(display)  # 分叶（绿色）
-        # display = self._detect_vacuole(display)  # 空泡（黄色）
-        display = self._detect_calcification(display)  # 钙化（蓝色）
+        # display = self._detect_lobulation(display)  # 分叶（绿色）
+        display = self._detect_vacuole(display)  # 空泡（黄色）
+        # display = self._detect_calcification(display)  # 钙化（蓝色）
 
         # 更新显示
         self._update_canvas(display)
@@ -362,10 +362,14 @@ class MorphologyAnalyzer:
         }
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # 显示用图像单独处理
+        dispay_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
         binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                        cv2.THRESH_BINARY_INV,
                                        params['block'],
                                        params['c'])
+        resize = cv2.resize(binary, (800, 600), interpolation=cv2.INTER_AREA)
+        cv2.imshow("enhanced Image", resize)
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
             main_contour = max(contours, key=cv2.contourArea)
@@ -376,84 +380,85 @@ class MorphologyAnalyzer:
             lobulation_index = cv2.contourArea(approx) / cv2.contourArea(main_contour)
             print(f"[DEBUG] 分叶指数: {lobulation_index:.2f}")
             print(f"[DEBUG] 近似轮廓点数: {len(approx)}")
+        return dispay_img
 
     def _detect_vacuole(self, img):
         """空泡检测（黄色圆圈）"""
         # 确保参数为整数
         params = {
-            'min_r': int(self.config['vacuole']['min_r']),  # 空泡直径下限1mm
-            'max_r': int(self.config['vacuole']['max_r']),  # 直径上限5mm
-            'circularity': int(self.config['vacuole']['circularity']),  # 降低圆形度要求（允许卵圆形/不规则）
-            'contrast_thresh': int(self.config['vacuole']['contrast_thresh'])  # 新增对比度阈值（排除血管干扰）
+            'lower_hu': int(150),  # 空泡直径下限1mm
+            'upper_hu': int(200),  # 直径上限5mm
+            'area_thresh': int(1)  # 面积阈值
         }
-        # 确保输入图像为灰度图像
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        if self.dicom_image is not None:
+            # 使用标准肺窗设置（窗宽1500，窗位-600）
+            hu = self.dicom_image.pixel_array.astype(np.int16)
+            hu = hu * int(self.dicom_image.RescaleSlope) + int(self.dicom_image.RescaleIntercept)
+
+            # 调整窗宽窗位计算方式
+            window_center = -600  # 肺窗中心
+            window_width = 1500  # 肺窗宽度
+            min_hu = window_center - window_width // 2
+            max_hu = window_center + window_width // 2
+            hu = np.clip(hu, min_hu, max_hu)
+
+            # 优化归一化并增强对比度
+            gray = cv2.normalize(hu, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            gray = cv2.equalizeHist(gray)  # 直方图均衡化
+
         else:
-            gray = img.copy()
+            # 普通CT图像预处理
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = img.copy()
         # 显示用图像单独处理
         display_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        # 动态阈值二值化
-        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                       cv2.THRESH_BINARY, 11, 2)
-        # # 添加形态学开运算（消除小血管干扰）
+        """空泡征检测（结合论文参数优化）"""
+        # 1. 预处理：高斯去噪
+        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+        # resize = cv2.resize(enhanced, (800, 600), interpolation=cv2.INTER_AREA)
+        # cv2.imshow("enhanced Image", resize)
+        # 2. 动态阈值分割（Otsu + 密度范围过滤）
+        _, otsu_thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        # 3. 形态学优化：去除小噪点
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-        # # 显示用图像单独处理
-        #图像显示
-        resize = cv2.resize(opened, (800, 600), interpolation=cv2.INTER_AREA)
-        cv2.imshow("Opened Image", resize)
+        cleaned = cv2.morphologyEx(gray, cv2.MORPH_OPEN, kernel)
+        #直方图均衡化
+        cleaned = cv2.equalizeHist(cleaned)
 
-        circles = np.zeros((1, 0, 3), dtype=np.uint16)  # 初始形状 (1, 0, 3)
-        hough_circles = cv2.HoughCircles(
-            opened, cv2.HOUGH_GRADIENT,
-            dp=1.2 if img.shape[1] > 512 else 1.0,  # 高分辨率图像增加dp,  # 提高检测灵敏度
-            minDist=15,  # 防止密集区域重叠
-            param1=30,  # 降低Canny阈值
-            param2=params['circularity'],
-            minRadius=params['min_r'],
-            maxRadius=params['max_r']
-        )
-        if hough_circles is not None:
-            circles = np.concatenate([circles, hough_circles], axis=1)
-        print(f"[DEBUG] HoughCircles检测到圆形数量: {len(circles[0]) if circles is not None else 0}")
-        # 第二阶段：轮廓筛选（排除管状结构）
-        contours, _ = cv2.findContours(opened, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if params['min_r'] ** 2 * 3.14 < area < params['max_r'] ** 2 * 3.14:
-                (x, y), radius = cv2.minEnclosingCircle(cnt)
-                if params['min_r'] < radius < params['max_r']:
-                    circles = np.append(circles if circles is not None else np.empty((0, 1, 3)),
-                                        np.array([[[x, y, radius]]]), axis=1)
-        # 对比度验证
-        for circle in circles[0]:
-            x, y, r = circle
-            roi = gray[int(y - r):int(y + r), int(x - r):int(x + r)]
-            if roi.size == 0:
+        resize1 = cv2.resize(cleaned, (800, 600), interpolation=cv2.INTER_AREA)
+        cv2.imshow("cleaned Image", resize1)
+        # 4. 连通区域分析 + 形态筛选
+        contours, _ = cv2.findContours(cleaned, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        area_thresh = params.get('area_thresh', 1) / 0.5  # 直径≤5mm对应面积阈值
+        valid_contours = []
+
+        for c in contours:
+            area = cv2.contourArea(c)
+            print(f"[DEBUG] 空泡区域面积: {area:.2f}")
+            if area < area_thresh or area > 10:  # 空泡直径范围
                 continue
-            contrast = (np.max(roi) - np.min(roi)) / 255.0
-            if contrast < params['contrast_thresh']:
-                continue  # 排除低对比度伪影
-        if circles is not None:
-            circles = np.uint16(np.around(circles))
-            for i in circles[0, :]:
-                cv2.circle(display_img, (i[0], i[1]), i[2], (255, 0, 0), 1)
-        print(f"[DEBUG] 检测到空泡数量: {len(circles[0]) if circles is not None else 0}")
 
-        # 计算空泡指数
-        def calc_vacuole_index(circles, img_area):
-            total_area = sum(np.pi * (r ** 2) for _, _, r in circles[0])
-            return round(total_area / img_area * 1e4, 2)
+            #形态学筛选（圆形度、长宽比）
+            (x, y), (w, h), angle = cv2.minAreaRect(c)
+            aspect_ratio = max(w, h) / min(w, h) if min(w, h) > 0 else 0
+            perimeter = cv2.arcLength(c, True)
+            circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
 
-        print(f"[量化] 空泡指数: {calc_vacuole_index(circles, img.size)}")
+            if circularity > 0.7 and aspect_ratio < 1.5:
+                valid_contours.append(c)
+                # 绘制有效轮廓
+                cv2.drawContours(display_img, [c], -1, (0, 0, 255), 1)
+
+        print(f"[DEBUG] 空泡区域数: {len(valid_contours)}")
         return display_img
 
     def _detect_calcification(self, img):
         """智能钙化检测（支持DICOM原始数据或预处理CT图像）"""
         # 类型检测分支
         # DICOM处理优化
-
         if self.dicom_image is not None:
             # 使用标准肺窗设置（窗宽1500，窗位-600）
             hu = self.dicom_image.pixel_array.astype(np.int16)
@@ -504,8 +509,8 @@ class MorphologyAnalyzer:
 
             # 连通域过滤增强
             contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-            resize = cv2.resize(mask, (800, 600), interpolation=cv2.INTER_AREA)
-            cv2.imshow("Binary Image", resize)
+            resize1 = cv2.resize(mask, (800, 600), interpolation=cv2.INTER_AREA)
+            cv2.imshow("Binary Image", resize1)
             mask = np.zeros_like(mask)
             for cnt in contours:
                 area = cv2.contourArea(cnt) / 0.5
@@ -532,15 +537,6 @@ class MorphologyAnalyzer:
 
     def _update_canvas(self, img):
         """更新画布显示（改进版）"""
-        # # 转换为RGB并调整尺寸
-        # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        # img = Image.fromarray(img)
-        #
-        # # 使用双线性插值进行高质量缩放
-        # img = img.resize((800, 600), Image.Resampling.LANCZOS)
-        #
-        # self.tk_img = ImageTk.PhotoImage(img)
-        # self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_img)
         # 删除旧图像项
         self.canvas.delete("all")
 

@@ -188,8 +188,20 @@ border: 2px solid #3a3a3a;</string>
          <attribute name="horizontalHeaderMinimumSectionSize">
           <number>40</number>
          </attribute>
+         <attribute name="verticalHeaderCascadingSectionResizes">
+          <bool>true</bool>
+         </attribute>
          <attribute name="verticalHeaderMinimumSectionSize">
-          <number>40</number>
+          <number>30</number>
+         </attribute>
+         <attribute name="verticalHeaderDefaultSectionSize">
+          <number>30</number>
+         </attribute>
+         <attribute name="verticalHeaderShowSortIndicator" stdset="0">
+          <bool>true</bool>
+         </attribute>
+         <attribute name="verticalHeaderStretchLastSection">
+          <bool>true</bool>
          </attribute>
          <column>
           <property name="text">

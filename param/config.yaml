@@ -5,8 +5,8 @@ n_status: N1
 m_status: M0
 thresholds:
   low: 3
-  medium: 6
-  high: 8
+  medium: 7
+  high: 10
 patient:
   age_weights:
     <45: 0.5
@@ -14,11 +14,11 @@ patient:
     55-69: 2.0
     '>=70': 3.0
   gender_weights:
-    男: 1.5
-    女: 0.6
+    男: 1.0
+    女: 0.5
   history_keywords:
-    吸烟: 2.0
-    家族史: 1.5
+    吸烟: 1.5
+    家族史: 1.0
 nodules:
   type:
     ggo: 1.0

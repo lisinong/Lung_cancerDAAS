@@ -1,44 +1,22 @@
-##calcification:                #钙化
-##  hu_thresh: 400              # HU值阈值
-##  hu_scale_factor: 1          # HU值缩放因子
-#lobulation:                   #分叶
-#  block_size: 11              # 自适应阈值块大小
-#  c: 2                        # 自适应阈值常数
-#  contour_thresh: 0.03               # 轮廓近似阈值
-#spiculation:                  #毛刺
-#  max_gap: 5                  #最大线段间隙
-#  min_length: 20                 #最小线段长度
-#  hough_threshold: 50         # 霍夫变换阈值
-#vacuolation:                  #空泡征
-#  intensity_thresh: 21.09375  # 强度阈值
-#  area_thresh: 5              # 面积阈值
-#mm_per_pixel: 0.5           # 像素与毫米的比例
-
-
 # Morphology.yaml
 spiculation:
-  hough_threshold: 30
-  min_length: 10       # 单位：像素
-  max_gap: 3
+  hough_threshold: 30    # 霍夫变换阈值
+  min_length: 10         # 最小线段长度
+  max_gap: 3             # 最大线段间隙
 
 lobulation:
-  block_size: 11
-  c: 2
-  contour_thresh: 0.3
+  block_size: 11         #自适应阈值块大小
+  c: 2                   #自适应阈值常数
+  contour_thresh: 0.3    # 轮廓阈值
 
 vacuolation:
-  min_r: 0.5
-  max_r: 5
-  circularity: 5.0
-  contrast_thresh: 3.14
-  intensity_thresh: 21.09375  # 强度阈值
-  area_thresh: 5  # 面积阈值
+  min_area: 1           # 空泡征最小面积
+  max_area: 3           # 空泡征最大面积
 
 calcification:
-  min_area: 10
-  max_area: 150
+  min_area: 10          # 钙化征最小面积
+  max_area: 150         # 钙化征最大面积
 
 
 physical_params:
   mm_per_pixel: 0.5               # 空间分辨率[1](@ref)
-  slice_thickness: 1.0            # 层厚（单位：mm）

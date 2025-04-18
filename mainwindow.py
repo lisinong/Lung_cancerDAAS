@@ -57,14 +57,14 @@ class MainWindow(QMainWindow):
             'mm_per_pixel': 0.5,
             'thresholds': {
                 'low': 3,
-                'medium': 5,
-                'high': 7
+                'medium': 7,
+                'high': 10
             },
             # 患者特征参数
             'patient': {
                 'age_weights': {'<45': 0.5, '45-54': 1.5, '55-69': 2.0, '>=70': 3.0},
-                'gender_weights': {'男': 1.5, '女': 0.5},
-                'history_keywords': {'吸烟': 2.0, '家族史': 1.5}
+                'gender_weights': {'男': 1, '女': 0.5},
+                'history_keywords': {'吸烟': 1.5, '家族史': 1}
             },
             'nodules': {
                 'size': [(5, 0), (10, 1), (20, 2), (30, 3), (float('inf'), 4)],
@@ -284,11 +284,13 @@ class MainWindow(QMainWindow):
 
             # 位置分类（基于CT影像坐标，假设图像高度为512px）
             y_pos = nodule['position'][1]
-            if y_pos < 200:  # 上肺叶
+            img_height = self.current_params['img_height']  # 假设图像高度为512px
+            if y_pos < (img_height/3):  # 上肺叶
                 location = "上肺叶"
-            else:  # 下肺叶
+            elif (img_height / 3) <= y_pos < (2 * img_height) / 3:  # 中肺叶:
+                location = "中肺叶"
+            else:
                 location = "下肺叶"
-
             # 标注主结节
             feature_line = []
             if not is_single:
@@ -483,9 +485,7 @@ class MainWindow(QMainWindow):
                 weight = morph_rules.get(feature, 0)
                 if weight > 0:
                     score += weight
-                    # morphology_weights[feature] += 1
-
-        return min(score, 15)  # 根据LU-RADS调整上限
+        return min(score, 12)  # 根据LU-RADS调整上限
 
     def _generate_advice(self, risk_level, main_nodule):
         """根据NCCN指南生成建议[6](@ref)"""
@@ -574,7 +574,7 @@ class MainWindow(QMainWindow):
 
         return f"{stage_detail[0]} {tnm_code}", stage_detail[1]
 
-    def _crop_roi(self, image, coords, padding=5):
+    def _crop_roi(self, image, coords, padding=2):
         """带安全边界的ROI裁剪"""
         h, w = image.shape[:2]
         x1, y1, x2, y2 = [int(round(c)) for c in coords]
@@ -707,7 +707,7 @@ class MainWindow(QMainWindow):
             morphology_desc = []
             if nodule['morphology']['spiculation'] > 0:
                 morphology_desc.append("毛刺")
-            if nodule['morphology']['lobulation'] >= 3:
+            if nodule['morphology']['lobulation'] > 0:
                 morphology_desc.append("分叶")
             if nodule['morphology']['calcification'] > 0:
                 morphology_desc.append("钙化")
