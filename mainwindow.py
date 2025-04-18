@@ -57,8 +57,8 @@ class MainWindow(QMainWindow):
             'mm_per_pixel': 0.5,
             'thresholds': {
                 'low': 3,
-                'medium': 7,
-                'high': 10
+                'medium': 6,
+                'high': 9
             },
             # 患者特征参数
             'patient': {
@@ -513,7 +513,7 @@ class MainWindow(QMainWindow):
         items = []
         if features['spiculation'] > 0:
             items.append(f"毛刺({features['spiculation']}处)")
-        if features['lobulation'] >= 3:
+        if features['lobulation'] > 0:
             items.append(f"分叶({features['lobulation']}处)")
         if features['calcification'] > 0:
             items.append(f"钙化({int(features['calcification'])}处)")

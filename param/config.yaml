@@ -5,8 +5,8 @@ n_status: N1
 m_status: M0
 thresholds:
   low: 3
-  medium: 7
-  high: 10
+  medium: 6
+  high: 9
 patient:
   age_weights:
     <45: 0.5
