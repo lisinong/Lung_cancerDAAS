@@ -98,29 +98,31 @@ class PatientInfoDialog(QDialog):
                 self.dicom_dataset = dicom_dataset  # 存储DICOM数据集
                 # --- 字符集处理 ---
                 getattr(dicom_dataset, 'SpecificCharacterSet', 'GB18030')
-                for tag in ['PatientName', 'PatientSex', 'PatientAge']:
-                    if not hasattr(dicom_dataset, tag):
-                        raise ValueError(f"DICOM文件缺少必要字段: {tag}")
+                # for tag in ['PatientName', 'PatientSex', 'PatientAge']:
+                #     if not hasattr(dicom_dataset, tag):
+                #         raise ValueError(f"DICOM文件缺少必要字段: {tag}")
                 # --- 自动填充表单 ---
                 # 姓名填充
-                patient_name = str(dicom_dataset.PatientName)
-                self.name_edit.setText(patient_name)
-
-                # 性别填充
-                sex_mapping = {'M': '男', 'F': '女'}
-                patient_sex = sex_mapping.get(
-                    getattr(dicom_dataset, 'PatientSex', ''),
-                    '未知'
-                )
-                self.gender_combo.setCurrentText(patient_sex)
-
-                # 年龄填充
-                age = self._parse_dicom_age(dicom_dataset.PatientAge)
-                if age is not None:
-                    self.age_spin.setValue(age)
-                else:
-                    self.age_spin.clear()
-                    print("年龄字段格式无效，已清空输入框")
+                # patient_name = str(dicom_dataset.PatientName)
+                # self.name_edit.setText(patient_name)
+                #
+                # # 性别填充
+                # sex_mapping = {'M': '男', 'F': '女'}
+                # patient_sex = sex_mapping.get(
+                #     getattr(dicom_dataset, 'PatientSex', ''),
+                #     '未知'
+                # )
+                # self.gender_combo.setCurrentText(patient_sex)
+                #
+                # # 年龄填充
+                # age = self._parse_dicom_age(dicom_dataset.PatientAge)
+                # if dicom_dataset.PatientAge is None:
+                #     raise ValueError("年龄字段缺失")
+                # if age is not None:
+                #     self.age_spin.setValue(age)
+                # else:
+                #     self.age_spin.clear()
+                #     print("年龄字段格式无效，已清空输入框")
 
                 # --- 提取CT数据 ---
                 pixel_array = dicom_dataset.pixel_array

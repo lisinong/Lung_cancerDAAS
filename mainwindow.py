@@ -13,6 +13,8 @@ from ultralytics import YOLO
 
 from windows.CircleLoadingAnimation import CircleLoadingAnimation, FrostedGlassWidget
 from windows.DetectionWorker import DetectionWorker
+from windows.DraggableRect import YoloWindow
+from windows.HelpSystem import HelpSystem
 from windows.PatientInfoDialog import PatientInfoDialog
 from windows.ReportExportDialog import ReportExportDialog
 from windows.RiskConfigDialog import RiskConfigDialog
@@ -29,6 +31,8 @@ from ui_form import Ui_MainWindow
 class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.yolo_window = None
+        self.help_window = None
         self.thread = None
         self.worker = None
         self.dicomdata = None
@@ -37,6 +41,7 @@ class MainWindow(QMainWindow):
         self._detect_available = False
         self.nodules = None
         self.advice = None
+        self.yolos = None
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
         # 新增患者信息存储
@@ -98,6 +103,8 @@ class MainWindow(QMainWindow):
         self.progress = CircleLoadingAnimation()  # 实例化一个加载动画
         self.thread = None  # 用于保存当前线程引用
         # 新增按钮
+        self.ui.yolobtn.clicked.connect(self.show_yolo_window)
+        self.ui.helpbtn.clicked.connect(self.show_help_window)
         self.ui.startDetectionBtn.clicked.connect(self.start_detection)
         self.ui.addPatientBtn.clicked.connect(self.show_patient_dialog)
         self.ui.exportBtn.clicked.connect(self.show_export_dialog)
@@ -108,6 +115,7 @@ class MainWindow(QMainWindow):
         # 按钮状态初始化
         self.ui.startDetectionBtn.setEnabled(self._detect_available)
         self.ui.exportBtn.setEnabled(self._export_available)
+        self.ui.yolobtn.setEnabled(self._export_available)
 
         # 更新提示信息
         if not self._detect_available:
@@ -117,8 +125,30 @@ class MainWindow(QMainWindow):
         #更新导出按钮提示
         if not self._export_available:
             self.ui.exportBtn.setToolTip("请先完成检测")
+            self.ui.yolobtn.setToolTip("请先完成检测")
         else:
             self.ui.exportBtn.setToolTip("点击导出报告")
+
+    def show_yolo_window(self):
+        """显示YOLO模型窗口"""
+        # 确保只创建一个实例
+        if self.yolo_window is None:
+            self.yolo_window = YoloWindow()
+            self.yolo_window.loadImage(self.current_image_path,self.yolos)
+
+        # 必须调用show()方法
+        self.yolo_window.show()
+        self.yolo_window.raise_()
+
+    def show_help_window(self):
+        # 确保只创建一个实例
+        if self.help_window is None:
+            self.help_window = HelpSystem(parent=self)
+            self.help_window.position_window()
+
+        # 必须调用show()方法
+        self.help_window.show()
+        self.help_window.raise_()  # 确保窗口置顶
 
     def show_config_dialog(self):
         """显示参数配置对话框（更新版）"""
@@ -255,7 +285,7 @@ class MainWindow(QMainWindow):
         else:
             is_single = False
         if not nodules:
-            return "未检测到明显结节"
+            return "未见明确肺内结节性病灶"
 
         # 自动确定主结节（若输入为单个结节则自动标记）
         main_nodule = nodules[0] if is_single else max(
@@ -267,41 +297,41 @@ class MainWindow(QMainWindow):
             # 直径分类标准（根据Lung-RADS 1.1）
             diameter = nodule['diameter_mm']
             if diameter < 6:
-                size_desc = "微小结节（<6mm）"
+                size_desc = "Category 2：亚厘米结节（<6mm）"  # ​**国际分类标准**​
             elif 6 <= diameter < 10:
-                size_desc = "小结节（6-10mm）"
+                size_desc = "Category 3：中度风险结节（6-10mm）"
             elif 10 <= diameter < 30:
-                size_desc = "中等结节（10-30mm）"
+                size_desc = "Category 4B：高危结节（10-30mm）"  # ​**更新分类阈值**​
             else:
-                size_desc = "高风险结节（≥30mm）"
+                size_desc = "Category 4X：侵袭性征象结节（≥30mm）"  # ​**新增恶性特征标识**​
             # 类型本地化映射（兼容TI-RADS分类）
             type_mapping = {
                 'solid': '实性结节',
-                'part-solid': '部分实性结节',
-                'ggo': '磨玻璃结节',
+                'part-solid': '混合性磨玻璃结节',
+                'ggo': '纯磨玻璃结节（非典型腺瘤增生）',
             }
-            type_desc = type_mapping.get(nodule['type'], '其他类型（需人工复核）')
+            type_desc = type_mapping.get(nodule['type'], '待病理分型（建议MDT会诊）')
 
             # 位置分类（基于CT影像坐标，假设图像高度为512px）
             y_pos = nodule['position'][1]
             img_height = self.current_params['img_height']  # 假设图像高度为512px
-            if y_pos < (img_height/3):  # 上肺叶
-                location = "上肺叶"
-            elif (img_height / 3) <= y_pos < (2 * img_height) / 3:  # 中肺叶:
-                location = "中肺叶"
+            if y_pos < (img_height / 3):
+                location = "右上叶尖段（RB1）"  # **解剖命名法**
+            elif (img_height / 3) <= y_pos < (2 * img_height) / 3:
+                location = "右中叶外侧段（RB4）"
             else:
-                location = "下肺叶"
+                location = "右下叶背段（RB6）"
             # 标注主结节
             feature_line = []
             if not is_single:
-                prefix = "★主结节 " if nodule == main_nodule else f"结节{nodule['index']} "
+                prefix = "★主病灶 " if nodule == main_nodule else f"卫星灶{nodule['index']} "
                 feature_line.append(prefix)  # 不立即添加换行符
 
             feature_line.extend([
                 f"{size_desc} | ",
-                f"类型：{type_desc} | ",
-                f"形态: {self._format_morphology(nodule['morphology'])} | ",
-                f"位置：{location}"
+                f"组织学类型：{type_desc} | ",
+                f"形态学: {self._format_morphology(nodule['morphology'])} | ",
+                f"解剖定位：{location}（三维重建坐标：{nodule['position']}）"
             ])
 
             # 合并为单行字符串后再添加到列表
@@ -491,18 +521,22 @@ class MainWindow(QMainWindow):
         """根据NCCN指南生成建议[6](@ref)"""
         advice_map = {
             "高危": [
-                f"1.建议PET-CT检查（主结节直径{main_nodule['diameter_mm']}mm）",
-                "2.需多学科会诊讨论治疗方案",
-                "3.穿刺活检优先级：高"
+                f"优先安排PET-CT检查（检测恶性代谢活性，主结节直径{main_nodule['diameter_mm']}mm已达高危标准）",
+                "2.启动肿瘤多学科会诊（MDT），综合胸外科、呼吸科、影像科意见制定手术/放化疗方案",
+                "3.建议72小时内完成CT引导下穿刺活检，病理确诊后启动肺癌绿色通道"
             ],
             "中危": [
-                "1.建议3个月后复查薄层CT",
-                "2.戒烟干预建议",
-                f"3.监测{main_nodule['type']}结节变化"
+                "1.薄层CT动态随访：推荐3个月后复查（层厚≤1mm），使用人工智能软件进行结节体积倍增时间测算",
+                "2.呼吸科专项干预：提供尼古丁替代疗法+行为认知治疗（针对吸烟者），PM2.5防护指导",
+                f"3.建立电子健康档案，重点监测{main_nodule['type']}类结节的形态学改变（如血管穿行征、毛刺征进展）",
+                "4.建议4-6个月后进行低剂量CT复查（辐射剂量≤1mSv），必要时进行PET-CT检查"
             ],
             "低危": [
-                "1.年度低剂量CT筛查,建议年度常规体检",
-                "2.健康教育及风险因素控制"
+                "1.年度低剂量CT筛查（辐射剂量≤1mSv），同步进行肺癌七种自身抗体血液检测",
+                "2.开展呼吸健康管理：建议安装空气净化系统（PM2.5浓度控制≤15μg/m³），开具地中海饮食食谱",
+                "3.对磨玻璃结节（GGN）患者补充维生素D摄入（每日800IU），降低炎症反应",
+                "4.建议6-12个月后复查CT，必要时进行PET-CT检查"
+
             ]
         }
 
@@ -519,7 +553,7 @@ class MainWindow(QMainWindow):
             items.append(f"钙化({int(features['calcification'])}处)")
         if features['vacuolation'] > 0:
             items.append(f"空泡({features['vacuolation']}处)")
-        return " | ".join(items) if items else "未见典型恶性征象"
+        return " | ".join(items) if items else "未见典型侵袭性征象"
 
     def predict_tnm_stage(self, nodules):
         """基于TNM第八版分期标准"""
@@ -588,10 +622,15 @@ class MainWindow(QMainWindow):
         """处理检测结果并提取结节特征"""
         nodules = []
         nodule_index = 1
+        self.yolos = []  # 存储YOLO检测框信息
         for result in results:
             for box in result.boxes:
                 # 获取检测框信息
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
+                # 计算检测框坐标
+                center_x = (x1 + x2) / 2
+                center_y = (y1 + y2) / 2
+                print(f"检测框坐标: {x1}, {y1}, {x2}, {y2}")
                 cls = int(box.cls[0].item())
                 conf = box.conf[0].item()
                 # 过滤低置信度检测
@@ -600,6 +639,14 @@ class MainWindow(QMainWindow):
                 # 计算实际尺寸
                 width = x2 - x1
                 height = y2 - y1
+                self.yolos.append({
+                    'index': nodule_index,
+                    'center_x': center_x/self.current_params['img_height'],
+                    'center_y': center_y/self.current_params['img_height'],
+                    'width': width/self.current_params['img_height'],
+                    'height': height/self.current_params['img_height'],
+                    'cls': cls
+                })
                 diameter = max(width, height) * self.default_params['mm_per_pixel']
                 # 结节类型
                 nodule_type = result.names[cls]

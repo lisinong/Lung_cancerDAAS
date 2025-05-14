@@ -186,7 +186,7 @@ class MorphologyAnalyzer:
 
         for c in contours:
             area = cv2.contourArea(c)
-            print(f"[DEBUG] 空泡区域面积: {area:.2f}")
+
             if area < min_area or area > max_area:  # 空泡直径范围
                 continue
 

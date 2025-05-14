@@ -328,7 +328,7 @@ border: 2px solid #3a3a3a;</string>
           </rect>
          </property>
          <property name="text">
-          <string>T描述: 原发肿瘤&gt;50mm
+          <string>T描述: 无
 N描述: 无淋巴结转移
 M描述: 无远端转移</string>
          </property>
@@ -410,6 +410,32 @@ M描述: 无远端转移</string>
     </property>
     <property name="text">
      <string>导出</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="helpbtn">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>570</y>
+      <width>116</width>
+      <height>33</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>帮助</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="yolobtn">
+    <property name="geometry">
+     <rect>
+      <x>140</x>
+      <y>570</y>
+      <width>116</width>
+      <height>33</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>修正数据</string>
     </property>
    </widget>
   </widget>
